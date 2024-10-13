@@ -156,7 +156,9 @@ impl From<&str> for ServerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
 
+    /// Test case for converting an `io::Error` into `ServerError::Io`.
     #[test]
     fn test_io_error_conversion() {
         let io_error =
@@ -165,12 +167,14 @@ mod tests {
         assert!(matches!(server_error, ServerError::Io(_)));
     }
 
+    /// Test case for creating a `ServerError::Custom` from a string slice.
     #[test]
     fn test_custom_error_creation() {
-        let custom_error = ServerError::from("Unexpected error");
+        let custom_error: ServerError = "Unexpected error".into();
         assert!(matches!(custom_error, ServerError::Custom(_)));
     }
 
+    /// Test case for verifying the error messages of different `ServerError` variants.
     #[test]
     fn test_error_messages() {
         let not_found = ServerError::not_found("index.html");
@@ -187,19 +191,122 @@ mod tests {
         );
     }
 
+    /// Test case for creating a `ServerError::InvalidRequest` using the `invalid_request` method.
     #[test]
-    fn test_error_creation_methods() {
+    fn test_invalid_request_creation() {
         let invalid_request =
             ServerError::invalid_request("Bad request");
         assert!(matches!(
             invalid_request,
             ServerError::InvalidRequest(_)
         ));
+        assert_eq!(
+            invalid_request.to_string(),
+            "Invalid request: Bad request"
+        );
+    }
 
+    /// Test case for creating a `ServerError::NotFound` using the `not_found` method.
+    #[test]
+    fn test_not_found_creation() {
         let not_found = ServerError::not_found("/nonexistent.html");
         assert!(matches!(not_found, ServerError::NotFound(_)));
+        assert_eq!(
+            not_found.to_string(),
+            "File not found: /nonexistent.html"
+        );
+    }
 
+    /// Test case for creating a `ServerError::Forbidden` using the `forbidden` method.
+    #[test]
+    fn test_forbidden_creation() {
         let forbidden = ServerError::forbidden("Access denied");
         assert!(matches!(forbidden, ServerError::Forbidden(_)));
+        assert_eq!(forbidden.to_string(), "Forbidden: Access denied");
+    }
+
+    /// Test case for verifying the `ServerError::Custom` variant and its error message.
+    #[test]
+    fn test_custom_error_message() {
+        let custom_error =
+            ServerError::Custom("Custom error occurred".to_string());
+        assert_eq!(
+            custom_error.to_string(),
+            "Custom error: Custom error occurred"
+        );
+    }
+
+    /// Test case for checking `ServerError::from` for string conversion.
+    #[test]
+    fn test_custom_error_from_str() {
+        let custom_error: ServerError = "Some custom error".into();
+        assert!(matches!(custom_error, ServerError::Custom(_)));
+        assert_eq!(
+            custom_error.to_string(),
+            "Custom error: Some custom error"
+        );
+    }
+
+    /// Test case for converting `io::Error` using a different error kind to `ServerError::Io`.
+    #[test]
+    fn test_io_error_conversion_other_kind() {
+        let io_error = io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "permission denied",
+        );
+        let server_error = ServerError::from(io_error);
+        assert!(matches!(server_error, ServerError::Io(_)));
+        assert_eq!(
+            server_error.to_string(),
+            "I/O error: permission denied"
+        );
+    }
+
+    /// Test case for verifying if `ServerError::InvalidRequest` carries the correct error message.
+    #[test]
+    fn test_invalid_request_message() {
+        let error_message = "Invalid HTTP version";
+        let invalid_request =
+            ServerError::InvalidRequest(error_message.to_string());
+        assert_eq!(
+            invalid_request.to_string(),
+            format!("Invalid request: {}", error_message)
+        );
+    }
+
+    /// Test case for verifying if `ServerError::NotFound` carries the correct file path.
+    #[test]
+    fn test_not_found_message() {
+        let file_path = "missing.html";
+        let not_found = ServerError::NotFound(file_path.to_string());
+        assert_eq!(
+            not_found.to_string(),
+            format!("File not found: {}", file_path)
+        );
+    }
+
+    /// Test case for verifying if `ServerError::Forbidden` carries the correct message.
+    #[test]
+    fn test_forbidden_message() {
+        let forbidden_message = "Access denied to private resource";
+        let forbidden =
+            ServerError::Forbidden(forbidden_message.to_string());
+        assert_eq!(
+            forbidden.to_string(),
+            format!("Forbidden: {}", forbidden_message)
+        );
+    }
+
+    /// Test case for `ServerError::Io` with a generic IO error to ensure correct propagation.
+    #[test]
+    fn test_io_error_generic() {
+        let io_error =
+            io::Error::new(io::ErrorKind::Other, "generic I/O error");
+        let server_error = ServerError::from(io_error);
+        assert!(matches!(server_error, ServerError::Io(_)));
+        assert_eq!(
+            server_error.to_string(),
+            "I/O error: generic I/O error"
+        );
     }
 }
