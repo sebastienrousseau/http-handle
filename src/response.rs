@@ -1,3 +1,42 @@
+// src/response.rs
+
+//! HTTP Response module for handling and sending server responses.
+//!
+//! This module defines the `Response` struct, which represents an HTTP response
+//! sent from the server to a client. The `Response` struct includes the status code,
+//! status text, headers, and body of the response. It provides functionality for creating
+//! and sending HTTP responses over a stream that implements the `Write` trait.
+//!
+//! The main components and methods of this module include:
+//!
+//! - `Response`: Represents an HTTP response, containing status code, headers, and body.
+//! - `Response::new`: Creates a new `Response` instance.
+//! - `Response::add_header`: Adds custom headers to the response.
+//! - `Response::send`: Sends the response over a writable stream (e.g., a network socket).
+//!
+//! This module integrates error handling via the `ServerError` type, ensuring that issues
+//! with sending the response or writing to the stream are properly captured and handled.
+//!
+//! # Example
+//!
+//! ```rust
+//! use http_handle::response::Response;
+//! use std::io::Cursor;
+//!
+//! let mut response = Response::new(200, "OK", b"Hello, world!".to_vec());
+//! response.add_header("Content-Type", "text/plain");
+//!
+//! let mut mock_stream = Cursor::new(Vec::new());
+//! response.send(&mut mock_stream).unwrap();
+//!
+//! let written_data = mock_stream.into_inner();
+//! assert!(written_data.starts_with(b"HTTP/1.1 200 OK\r\n"));
+//! ```
+//!
+//! This module is responsible for creating and formatting the HTTP status line, headers,
+//! and body before sending it to the client over a stream, ensuring compliance with the
+//! HTTP/1.1 protocol.
+
 use crate::error::ServerError;
 use serde::{Deserialize, Serialize};
 use std::io::Write;

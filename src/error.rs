@@ -1,3 +1,5 @@
+// src/error.rs
+
 //! Error types for the Http Handle.
 //!
 //! This module defines the various error types that can occur during the operation
