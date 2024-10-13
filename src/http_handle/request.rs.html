@@ -358,7 +358,8 @@
 <a href="#357" id="357">357</a>
 <a href="#358" id="358">358</a>
 <a href="#359" id="359">359</a>
-<a href="#360" id="360">360</a></pre></div><pre class="rust"><code><span class="doccomment">//! HTTP request parsing module for the Http Handle.
+<a href="#360" id="360">360</a>
+<a href="#361" id="361">361</a></pre></div><pre class="rust"><code><span class="doccomment">//! HTTP request parsing module for the Http Handle.
 //!
 //! This module provides functionality to parse incoming HTTP requests from a TCP stream.
 //! It defines the `Request` struct and associated methods for creating and interacting with HTTP requests in a secure and robust manner.
@@ -444,12 +445,13 @@
         <span class="kw">let </span><span class="kw-2">mut </span>buf_reader = BufReader::new(stream);
         <span class="kw">let </span><span class="kw-2">mut </span>request_line = String::new();
 
-        <span class="kw">let _ </span>= buf_reader.read_line(<span class="kw-2">&amp;mut </span>request_line).map_err(|e| {
-            ServerError::invalid_request(<span class="macro">format!</span>(
-                <span class="string">"Failed to read request line: {}"</span>,
-                e
-            ))
-        })<span class="question-mark">?</span>;
+        <span class="kw">let _ </span>=
+            buf_reader.read_line(<span class="kw-2">&amp;mut </span>request_line).map_err(|e| {
+                ServerError::invalid_request(<span class="macro">format!</span>(
+                    <span class="string">"Failed to read request line: {}"</span>,
+                    e
+                ))
+            })<span class="question-mark">?</span>;
 
         <span class="comment">// Trim the trailing \r\n before checking the length
         </span><span class="kw">let </span>trimmed_request_line = request_line.trim_end();

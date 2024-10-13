@@ -355,18 +355,22 @@
 <a href="#354" id="354">354</a>
 <a href="#355" id="355">355</a>
 <a href="#356" id="356">356</a>
-<a href="#357" id="357">357</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::error::ServerError;
+<a href="#357" id="357">357</a>
+<a href="#358" id="358">358</a>
+<a href="#359" id="359">359</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::error::ServerError;
 <span class="kw">use </span><span class="kw">crate</span>::request::Request;
 <span class="kw">use </span><span class="kw">crate</span>::response::Response;
+<span class="kw">use </span>serde::{Deserialize, Serialize};
 <span class="kw">use </span>std::fs;
 <span class="kw">use </span>std::io;
 <span class="kw">use </span>std::net::{TcpListener, TcpStream};
 <span class="kw">use </span>std::path::{Path, PathBuf};
 <span class="kw">use </span>std::thread;
-<span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="doccomment">/// Represents the Http Handle and its configuration.
-</span><span class="attr">#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+</span><span class="attr">#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
 </span><span class="kw">pub struct </span>Server {
     address: String,
     document_root: PathBuf,

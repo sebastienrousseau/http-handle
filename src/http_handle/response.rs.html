@@ -100,13 +100,17 @@
 <a href="#99" id="99">99</a>
 <a href="#100" id="100">100</a>
 <a href="#101" id="101">101</a>
-<a href="#102" id="102">102</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::error::ServerError;
+<a href="#102" id="102">102</a>
+<a href="#103" id="103">103</a>
+<a href="#104" id="104">104</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::error::ServerError;
+<span class="kw">use </span>serde::{Deserialize, Serialize};
 <span class="kw">use </span>std::io::Write;
 <span class="kw">use </span>std::net::TcpStream;
-<span class="kw">use </span>serde::{Deserialize, Serialize};
 
 <span class="doccomment">/// Represents an HTTP response, including the status code, status text, headers, and body.
-</span><span class="attr">#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+</span><span class="attr">#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
 </span><span class="kw">pub struct </span>Response {
     <span class="doccomment">/// The HTTP status code (e.g., 200 for OK, 404 for Not Found).
     </span><span class="kw">pub </span>status_code: u16,
