@@ -67,7 +67,7 @@ fn benchmark_server(c: &mut Criterion) {
     // Give the server a moment to start
     thread::sleep(std::time::Duration::from_millis(100));
 
-    c.bench_function("server_request", |b| {
+    let _ = c.bench_function("server_request", |b| {
         b.iter(|| {
             let mut stream =
                 TcpStream::connect("127.0.0.1:8082").unwrap();
@@ -78,7 +78,7 @@ fn benchmark_server(c: &mut Criterion) {
             let bytes_read = stream.read(&mut buffer).unwrap();
 
             // Use black_box to prevent the compiler from optimizing away the read operation
-            black_box(&buffer[..bytes_read]);
+            let _ = black_box(&buffer[..bytes_read]);
         })
     });
 

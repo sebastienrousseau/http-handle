@@ -65,6 +65,31 @@ criterion = "0.5"                           # Benchmarking library to test perfo
 name = "basic_server"                       # Name of the example
 path = "examples/basic_server.rs"           # Path to the example file
 
+[[example]]
+# Example code demonstrating error handling.
+name = "error_example"                      # Name of the example
+path = "examples/error_example.rs"          # Path to the example file
+
+[[example]]
+# Example code demonstrating the library as a library.
+name = "lib_example"                        # Name of the example
+path = "examples/lib_example.rs"            # Path to the example file
+
+[[example]]
+# Example code demonstrating request handling.
+name = "request_example"                   # Name of the example
+path = "examples/request_example.rs"       # Path to the example file
+
+[[example]]
+# Example code demonstrating response handling.
+name = "response_example"                  # Name of the example
+path = "examples/response_example.rs"      # Path to the example file
+
+[[example]]
+# Example code demonstrating server handling.
+name = "server_example"                    # Name of the example
+path = "examples/server_example.rs"        # Path to the example file
+
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
 # -----------------------------------------------------------------------------

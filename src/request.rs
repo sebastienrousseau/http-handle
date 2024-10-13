@@ -84,12 +84,13 @@ impl Request {
         let mut buf_reader = BufReader::new(stream);
         let mut request_line = String::new();
 
-        let _ = buf_reader.read_line(&mut request_line).map_err(|e| {
-            ServerError::invalid_request(format!(
-                "Failed to read request line: {}",
-                e
-            ))
-        })?;
+        let _ =
+            buf_reader.read_line(&mut request_line).map_err(|e| {
+                ServerError::invalid_request(format!(
+                    "Failed to read request line: {}",
+                    e
+                ))
+            })?;
 
         // Trim the trailing \r\n before checking the length
         let trimmed_request_line = request_line.trim_end();

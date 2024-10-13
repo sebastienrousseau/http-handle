@@ -1,15 +1,17 @@
 use crate::error::ServerError;
 use crate::request::Request;
 use crate::response::Response;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::thread;
-use serde::{Deserialize, Serialize};
 
 /// Represents the Http Handle and its configuration.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
 pub struct Server {
     address: String,
     document_root: PathBuf,

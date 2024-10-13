@@ -1,10 +1,12 @@
 use crate::error::ServerError;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::net::TcpStream;
-use serde::{Deserialize, Serialize};
 
 /// Represents an HTTP response, including the status code, status text, headers, and body.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
 pub struct Response {
     /// The HTTP status code (e.g., 200 for OK, 404 for Not Found).
     pub status_code: u16,
