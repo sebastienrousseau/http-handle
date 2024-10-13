@@ -6,7 +6,7 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.1"                           # Initial version of the crate
+version = "0.0.2"                           # Initial version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2021"                            # Rust edition being used (2021 edition is the latest stable)
 rust-version = "1.56.0"                     # Minimum supported Rust version
@@ -52,9 +52,9 @@ version_check = "0.9"                       # Ensures that a compatible Rust ver
 # -----------------------------------------------------------------------------
 [dev-dependencies]
 # Dependencies required for testing and development.
-tempfile = "3.2"                            # Temporary file creation for tests
-assert_fs = "1.0"                           # File system assertion library for tests
-predicates = "3.0"                          # Predicate assertions for test conditions
+tempfile = "3.13"                            # Temporary file creation for tests
+assert_fs = "1.1"                           # File system assertion library for tests
+predicates = "3.1"                          # Predicate assertions for test conditions
 criterion = "0.5"                           # Benchmarking library to test performance
 
 # -----------------------------------------------------------------------------

@@ -40,7 +40,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.1"
+http-handle = "0.0.2"
 ```
 
 ## Usage
@@ -118,9 +118,9 @@ Special thanks to all contributors who have helped build the `http-handle` libra
 [11]: https://opensource.org/licenses/MIT
 
 [build-badge]: https://img.shields.io/github/actions/workflow/status/sebastienrousseau/http-handle/release.yml?branch=main&style=for-the-badge&logo=github
-[codecov-badge]: https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&token=your_token_here&logo=codecov
+[codecov-badge]: https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&token=OOnQTi8yIQ&logo=codecov
 [crates-badge]: https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust
 [docs-badge]: https://img.shields.io/badge/docs.rs-http--handle-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs
 [github-badge]: https://img.shields.io/badge/github-sebastienrousseau/http--handle-8da0cb?style=for-the-badge&labelColor=555555&logo=github
-[libs-badge]: https://img.shields.io/badge/lib.rs-v0.0.1-orange.svg?style=for-the-badge
+[libs-badge]: https://img.shields.io/badge/lib.rs-v0.0.2-orange.svg?style=for-the-badge
 [made-with-rust]: https://img.shields.io/badge/rust-f04041?style=for-the-badge&labelColor=c0282d&logo=rust

@@ -1,7 +1,45 @@
+// src/response.rs
+
+//! HTTP Response module for handling and sending server responses.
+//!
+//! This module defines the `Response` struct, which represents an HTTP response
+//! sent from the server to a client. The `Response` struct includes the status code,
+//! status text, headers, and body of the response. It provides functionality for creating
+//! and sending HTTP responses over a stream that implements the `Write` trait.
+//!
+//! The main components and methods of this module include:
+//!
+//! - `Response`: Represents an HTTP response, containing status code, headers, and body.
+//! - `Response::new`: Creates a new `Response` instance.
+//! - `Response::add_header`: Adds custom headers to the response.
+//! - `Response::send`: Sends the response over a writable stream (e.g., a network socket).
+//!
+//! This module integrates error handling via the `ServerError` type, ensuring that issues
+//! with sending the response or writing to the stream are properly captured and handled.
+//!
+//! # Example
+//!
+//! ```rust
+//! use http_handle::response::Response;
+//! use std::io::Cursor;
+//!
+//! let mut response = Response::new(200, "OK", b"Hello, world!".to_vec());
+//! response.add_header("Content-Type", "text/plain");
+//!
+//! let mut mock_stream = Cursor::new(Vec::new());
+//! response.send(&mut mock_stream).unwrap();
+//!
+//! let written_data = mock_stream.into_inner();
+//! assert!(written_data.starts_with(b"HTTP/1.1 200 OK\r\n"));
+//! ```
+//!
+//! This module is responsible for creating and formatting the HTTP status line, headers,
+//! and body before sending it to the client over a stream, ensuring compliance with the
+//! HTTP/1.1 protocol.
+
 use crate::error::ServerError;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::net::TcpStream;
 
 /// Represents an HTTP response, including the status code, status text, headers, and body.
 #[derive(
@@ -62,28 +100,22 @@ impl Response {
         self.headers.push((name.to_string(), value.to_string()));
     }
 
-    /// Sends the response over the provided `TcpStream`.
+    /// Sends the response over the provided `Write` stream.
     ///
     /// This method writes the HTTP status line, headers, and body to the stream, ensuring
-    /// the client receives the complete response. It uses the `write!` macro and the `TcpStream`
-    /// to communicate with the client.
+    /// the client receives the complete response.
     ///
     /// # Arguments
     ///
-    /// * `stream` - A mutable reference to the `TcpStream` over which the response will be sent.
+    /// * `stream` - A mutable reference to any stream that implements `Write`.
     ///
     /// # Returns
     ///
     /// * `Ok(())` - If the response is successfully sent.
     /// * `Err(ServerError)` - If an error occurs while sending the response.
-    ///
-    /// # Errors
-    ///
-    /// This function returns a `ServerError` if there is any issue writing to the stream or
-    /// sending the response data.
-    pub fn send(
+    pub fn send<W: Write>(
         &self,
-        stream: &mut TcpStream,
+        stream: &mut W,
     ) -> Result<(), ServerError> {
         write!(
             stream,
@@ -100,5 +132,109 @@ impl Response {
         stream.flush()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{self, Cursor, Write};
+
+    /// Test case for the `Response::new` method.
+    #[test]
+    fn test_response_new() {
+        let status_code = 200;
+        let status_text = "OK";
+        let body = b"Hello, world!".to_vec();
+        let response =
+            Response::new(status_code, status_text, body.clone());
+
+        assert_eq!(response.status_code, status_code);
+        assert_eq!(response.status_text, status_text.to_string());
+        assert!(response.headers.is_empty());
+        assert_eq!(response.body, body);
+    }
+
+    /// Test case for the `Response::add_header` method.
+    #[test]
+    fn test_response_add_header() {
+        let mut response = Response::new(200, "OK", vec![]);
+        response.add_header("Content-Type", "text/html");
+
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(
+            response.headers[0],
+            ("Content-Type".to_string(), "text/html".to_string())
+        );
+    }
+
+    /// A mock implementation of `Write` to simulate writing the response without actual network operations.
+    struct MockTcpStream {
+        buffer: Cursor<Vec<u8>>,
+    }
+
+    impl MockTcpStream {
+        fn new() -> Self {
+            MockTcpStream {
+                buffer: Cursor::new(Vec::new()),
+            }
+        }
+
+        fn get_written_data(&self) -> Vec<u8> {
+            self.buffer.clone().into_inner()
+        }
+    }
+
+    impl Write for MockTcpStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.buffer.flush()
+        }
+    }
+
+    /// Test case for the `Response::send` method.
+    #[test]
+    fn test_response_send() {
+        let mut response =
+            Response::new(200, "OK", b"Hello, world!".to_vec());
+        response.add_header("Content-Type", "text/plain");
+
+        let mut mock_stream = MockTcpStream::new();
+        let result = response.send(&mut mock_stream);
+
+        assert!(result.is_ok());
+
+        let expected_output = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
+        let written_data = mock_stream.get_written_data();
+
+        assert_eq!(written_data, expected_output);
+    }
+
+    /// Test case for `Response::send` when there is an error during writing.
+    #[test]
+    fn test_response_send_error() {
+        let mut response =
+            Response::new(200, "OK", b"Hello, world!".to_vec());
+        response.add_header("Content-Type", "text/plain");
+
+        struct FailingStream;
+
+        impl Write for FailingStream {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::Other, "write error"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut failing_stream = FailingStream;
+        let result = response.send(&mut failing_stream);
+
+        assert!(result.is_err());
     }
 }

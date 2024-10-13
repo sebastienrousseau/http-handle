@@ -1,3 +1,32 @@
+// src/server.rs
+
+//! Server module for handling HTTP requests and responses.
+//!
+//! This module defines the core functionality for a simple HTTP server. It includes
+//! the `Server` struct, which represents the configuration of the server and manages
+//! incoming client connections. The server can serve static files from a document root
+//! and handle basic HTTP requests.
+//!
+//! The primary components of this module are:
+//!
+//! - `Server`: Represents the HTTP server and its configuration (address and document root).
+//! - `handle_connection`: Manages a single client connection, processing HTTP requests and sending responses.
+//! - `generate_response`: Generates an appropriate HTTP response based on the requested file or directory.
+//! - `get_content_type`: Determines the content type of files based on their extension.
+//!
+//! This module also includes error handling using `ServerError`, which covers
+//! I/O errors, invalid requests, file not found errors, and forbidden access.
+//!
+//! # Features
+//!
+//! - Handles HTTP GET requests and serves static files.
+//! - Supports serving an `index.html` for directories.
+//! - Returns a `404 Not Found` response for missing files.
+//! - Provides security against directory traversal attacks by restricting access
+//!   to the document root.
+//! - Serves appropriate content types based on file extensions (e.g., `.html`, `.css`, `.js`).
+//!
+
 use crate::error::ServerError;
 use crate::request::Request;
 use crate::response::Response;
