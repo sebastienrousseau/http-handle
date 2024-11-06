@@ -25,7 +25,7 @@ build = "build.rs"                          # Path to the build script (optional
 # -----------------------------------------------------------------------------
 [dependencies]
 # Required dependencies for building and running the project.
-thiserror = "1.0"                           # Error handling library for defining custom errors
+thiserror = "2.0"                           # Error handling library for defining custom errors
 anyhow = "1.0"                              # Error handling for context propagation
 serde = { version = "1.0", features = ["derive"] } # Serialization/deserialization with derive features
 serde_json = "1.0"                          # JSON support with Serde
