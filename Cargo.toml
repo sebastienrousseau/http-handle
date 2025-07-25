@@ -55,7 +55,7 @@ version_check = "0.9"                       # Ensures that a compatible Rust ver
 tempfile = "3.13"                            # Temporary file creation for tests
 assert_fs = "1.1"                           # File system assertion library for tests
 predicates = "3.1"                          # Predicate assertions for test conditions
-criterion = "0.5"                           # Benchmarking library to test performance
+criterion = "0.7"                           # Benchmarking library to test performance
 
 # -----------------------------------------------------------------------------
 # Examples
