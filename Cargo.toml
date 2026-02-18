@@ -31,6 +31,7 @@ serde = { version = "1.0", features = ["derive"] } # Serialization/deserializati
 serde_json = "1.0"                          # JSON support with Serde
 log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
+commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging"] }
 
 # -----------------------------------------------------------------------------
 # Library Configuration
