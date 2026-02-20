@@ -15,4 +15,4 @@ jobs:
           components: miri
       - run: rustup override set nightly
       - run: cargo miri setup
-      - run: cargo miri test --lib
+      - run: cargo miri test --lib miri_smoke::

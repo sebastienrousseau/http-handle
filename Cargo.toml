@@ -123,36 +123,43 @@ path = "examples/feature_language_detection.rs" # Path to the example file
 # Example code demonstrating concurrent batch processing.
 name = "feature_batch_processing"          # Name of the example
 path = "examples/feature_batch_processing.rs" # Path to the example file
+required-features = ["batch"]              # Only build when batch is enabled
 
 [[example]]
 # Example code demonstrating chunked file streaming.
 name = "feature_streaming_chunks"          # Name of the example
 path = "examples/feature_streaming_chunks.rs" # Path to the example file
+required-features = ["streaming"]          # Only build when streaming is enabled
 
 [[example]]
 # Example code demonstrating optimized lookup helpers.
 name = "feature_optimized_lookups"         # Name of the example
 path = "examples/feature_optimized_lookups.rs" # Path to the example file
+required-features = ["optimized"]          # Only build when optimized is enabled
 
 [[example]]
 # Example code demonstrating observability initialization.
 name = "feature_observability"             # Name of the example
 path = "examples/feature_observability.rs" # Path to the example file
+required-features = ["observability"]      # Only build when observability is enabled
 
 [[example]]
 # Example code demonstrating async runtime helper.
 name = "feature_async_runtime"             # Name of the example
 path = "examples/feature_async_runtime.rs" # Path to the example file
+required-features = ["async"]              # Only build when async is enabled
 
 [[example]]
 # Example code demonstrating async server startup.
 name = "feature_async_server"              # Name of the example
 path = "examples/feature_async_server.rs"  # Path to the example file
+required-features = ["async"]              # Only build when async is enabled
 
 [[example]]
 # Example code demonstrating HTTP/2 server startup.
 name = "feature_http2_server"              # Name of the example
 path = "examples/feature_http2_server.rs"  # Path to the example file
+required-features = ["http2"]              # Only build when HTTP/2 is enabled
 
 [[example]]
 # Example code demonstrating practical server policy configuration.

@@ -6,6 +6,7 @@
     html_logo_url = "https://kura.pro/http-handle/images/logos/http-handle.svg",
     html_root_url = "https://docs.rs/http-handle"
 )]
+#![cfg_attr(miri, allow(deprecated_in_future))]
 #![crate_name = "http_handle"]
 #![crate_type = "lib"]
 
@@ -68,3 +69,29 @@ pub use language::{Language, LanguageDetector};
 pub use server::{
     ConnectionPool, Server, ServerBuilder, ShutdownSignal, ThreadPool,
 };
+
+#[cfg(all(test, miri))]
+mod miri_smoke {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn response_serialization_smoke() {
+        let mut response =
+            response::Response::new(200, "OK", b"miri".to_vec());
+        response.add_header("Content-Type", "text/plain");
+        let mut out = Cursor::new(Vec::<u8>::new());
+        response.send(&mut out).expect("send");
+        assert!(!out.get_ref().is_empty());
+    }
+
+    #[test]
+    fn connection_pool_smoke() {
+        let pool = ConnectionPool::new(1);
+        let first = pool.acquire().expect("acquire");
+        assert_eq!(pool.active_count(), 1);
+        assert!(pool.acquire().is_err());
+        drop(first);
+        assert_eq!(pool.active_count(), 0);
+    }
+}
