@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   docs:
-    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@v0.0.1
+    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
     with:
       type: rust
       deploy: true

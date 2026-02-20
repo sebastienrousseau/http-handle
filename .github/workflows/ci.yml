@@ -37,10 +37,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   rust-ci:
     name: Rust CI
-    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@v0.0.1
+    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
     with:
       rust-version: stable
       run-clippy: true
