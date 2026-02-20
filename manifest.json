@@ -1,0 +1,47 @@
+{
+  "project": "http-handle-v0.0.3",
+  "dispatches": [
+    {
+      "agent": "maintainer",
+      "priority": "P1", 
+      "task": "Implement graceful shutdown mechanism with signal handling and connection draining for Server struct",
+      "verify_cmd": "grep -q 'shutdown' src/server.rs && cargo test server::tests::test_graceful_shutdown"
+    },
+    {
+      "agent": "maintainer",
+      "priority": "P1",
+      "task": "Add HEAD and OPTIONS method support to handle_connection function in server.rs",
+      "verify_cmd": "grep -q 'HEAD\\|OPTIONS' src/server.rs && cargo test request::tests::test_head_request"
+    },
+    {
+      "agent": "maintainer", 
+      "priority": "P2",
+      "task": "Expand MIME type support in get_content_type function to include WebP, AVIF, WASM, and other modern formats",
+      "verify_cmd": "grep -q 'webp\\|avif\\|wasm' src/server.rs && cargo test server::tests::test_modern_content_types"
+    },
+    {
+      "agent": "maintainer",
+      "priority": "P2", 
+      "task": "Implement ServerBuilder pattern for optional configuration (CORS, custom headers, timeouts)",
+      "verify_cmd": "grep -q 'ServerBuilder' src/server.rs && cargo test server::tests::test_server_builder"
+    },
+    {
+      "agent": "optimizer",
+      "priority": "P2",
+      "task": "Add optional connection pooling or thread pool for better resource management under load",
+      "verify_cmd": "grep -q 'thread_pool\\|connection_pool' src/server.rs && cargo bench"
+    },
+    {
+      "agent": "tester",
+      "priority": "P1",
+      "task": "Add integration tests for new HTTP methods and graceful shutdown scenarios",
+      "verify_cmd": "find tests -name '*.rs' | xargs grep -l 'shutdown\\|HEAD\\|OPTIONS' && cargo test"
+    },
+    {
+      "agent": "reviewer",
+      "priority": "P0",
+      "task": "Review all changes for backward compatibility, performance impact, and API design consistency before release",
+      "verify_cmd": "cargo test && cargo doc --no-deps && cargo bench"
+    }
+  ]
+}

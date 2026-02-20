@@ -1,0 +1,31 @@
+name: 📈 Coverage Strict
+
+on:
+  push:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/coverage-strict.yml"
+  pull_request:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/coverage-strict.yml"
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - name: Enforce 95% line coverage
+        run: cargo llvm-cov --all-features --workspace --fail-under-lines 95 --summary-only

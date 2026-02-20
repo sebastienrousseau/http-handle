@@ -1,0 +1,33 @@
+name: 📚 Docs Quality
+
+on:
+  push:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "README.md"
+      - ".github/workflows/docs-quality.yml"
+  pull_request:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "README.md"
+      - ".github/workflows/docs-quality.yml"
+  workflow_dispatch:
+
+jobs:
+  docs-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Enforce doc completeness and rustdoc quality
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo check --all-features
+          cargo test --doc --all-features
+          cargo doc --all-features --no-deps

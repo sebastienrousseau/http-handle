@@ -59,6 +59,10 @@ pub enum ServerError {
     /// A custom error type for unexpected scenarios.
     #[error("Custom error: {0}")]
     Custom(String),
+
+    /// A task execution failed (join failure or panic boundary).
+    #[error("Task failed: {0}")]
+    TaskFailed(String),
 }
 
 impl ServerError {
@@ -152,6 +156,38 @@ impl From<&str> for ServerError {
     /// ```
     fn from(error: &str) -> Self {
         ServerError::Custom(error.to_string())
+    }
+}
+
+impl From<ServerError> for io::Error {
+    /// Converts a `ServerError` into an `io::Error`.
+    ///
+    /// This implementation enables the `?` operator to convert `ServerError`
+    /// to `io::Error` when needed, particularly for functions that return
+    /// `io::Result<()>` but work with `ServerError` internally.
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - A `ServerError` to convert.
+    ///
+    /// # Returns
+    ///
+    /// An `io::Error` with the appropriate error kind and message.
+    fn from(error: ServerError) -> Self {
+        match error {
+            ServerError::Io(io_error) => io_error,
+            ServerError::InvalidRequest(msg) => {
+                io::Error::new(io::ErrorKind::InvalidInput, msg)
+            }
+            ServerError::NotFound(msg) => {
+                io::Error::new(io::ErrorKind::NotFound, msg)
+            }
+            ServerError::Forbidden(msg) => {
+                io::Error::new(io::ErrorKind::PermissionDenied, msg)
+            }
+            ServerError::Custom(msg) => io::Error::other(msg),
+            ServerError::TaskFailed(msg) => io::Error::other(msg),
+        }
     }
 }
 
@@ -249,6 +285,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_task_failed_error_message() {
+        let task_failed =
+            ServerError::TaskFailed("panic in task".to_string());
+        assert_eq!(
+            task_failed.to_string(),
+            "Task failed: panic in task"
+        );
+    }
+
     /// Test case for converting `io::Error` using a different error kind to `ServerError::Io`.
     #[test]
     fn test_io_error_conversion_other_kind() {
@@ -302,13 +348,37 @@ mod tests {
     /// Test case for `ServerError::Io` with a generic IO error to ensure correct propagation.
     #[test]
     fn test_io_error_generic() {
-        let io_error =
-            io::Error::new(io::ErrorKind::Other, "generic I/O error");
+        let io_error = io::Error::other("generic I/O error");
         let server_error = ServerError::from(io_error);
         assert!(matches!(server_error, ServerError::Io(_)));
         assert_eq!(
             server_error.to_string(),
             "I/O error: generic I/O error"
         );
+    }
+
+    #[test]
+    fn test_server_error_to_io_error_conversion() {
+        let converted: io::Error =
+            ServerError::invalid_request("invalid").into();
+        assert_eq!(converted.kind(), io::ErrorKind::InvalidInput);
+
+        let converted: io::Error = ServerError::not_found("x").into();
+        assert_eq!(converted.kind(), io::ErrorKind::NotFound);
+
+        let converted: io::Error = ServerError::forbidden("x").into();
+        assert_eq!(converted.kind(), io::ErrorKind::PermissionDenied);
+
+        let converted: io::Error =
+            ServerError::Custom("custom".to_string()).into();
+        assert_eq!(converted.kind(), io::ErrorKind::Other);
+
+        let converted: io::Error =
+            ServerError::TaskFailed("task".to_string()).into();
+        assert_eq!(converted.kind(), io::ErrorKind::Other);
+
+        let source = io::Error::new(io::ErrorKind::TimedOut, "timeout");
+        let converted: io::Error = ServerError::Io(source).into();
+        assert_eq!(converted.kind(), io::ErrorKind::TimedOut);
     }
 }

@@ -1,0 +1,27 @@
+name: 🦀 MSRV Check
+
+on:
+  push:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/msrv.yml"
+  pull_request:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/msrv.yml"
+  workflow_dispatch:
+
+jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install 1.87.0 --profile minimal
+      - run: cargo +1.87.0 check --workspace --all-targets --all-features

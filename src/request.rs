@@ -6,8 +6,9 @@
 //! It defines the `Request` struct and associated methods for creating and interacting with HTTP requests in a secure and robust manner.
 
 use crate::error::ServerError;
+use std::collections::HashMap;
 use std::fmt;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -20,6 +21,26 @@ const REQUEST_PARTS: usize = 3;
 
 /// Timeout duration for reading from the TCP stream (in seconds).
 const TIMEOUT_SECONDS: u64 = 30;
+/// Maximum number of accepted request headers.
+const MAX_HEADER_COUNT: usize = 100;
+/// Maximum allowed length for a single header line.
+const MAX_HEADER_LINE_LENGTH: usize = 8192;
+/// Maximum cumulative bytes for all headers.
+const MAX_HEADER_BYTES: usize = 64 * 1024;
+
+fn map_timeout_error(error: io::Error) -> ServerError {
+    ServerError::invalid_request(format!(
+        "Failed to set read timeout: {}",
+        error
+    ))
+}
+
+fn map_read_error(error: io::Error) -> ServerError {
+    ServerError::invalid_request(format!(
+        "Failed to read request line: {}",
+        error
+    ))
+}
 
 /// Represents an HTTP request, containing the HTTP method, the requested path, and the HTTP version.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +51,8 @@ pub struct Request {
     pub path: String,
     /// HTTP version of the request.
     pub version: String,
+    /// Parsed request headers (header-name lowercased).
+    pub headers: HashMap<String, String>,
 }
 
 impl Request {
@@ -53,7 +76,7 @@ impl Request {
     /// - The request line is too long (exceeds `MAX_REQUEST_LINE_LENGTH`)
     /// - The request line does not contain exactly three parts
     /// - The HTTP method is not recognized
-    /// - The request path does not start with a forward slash
+    /// - The request path does not start with a forward slash (except `OPTIONS *`)
     /// - The HTTP version is not supported (only HTTP/1.0 and HTTP/1.1 are accepted)
     ///
     /// # Examples
@@ -76,23 +99,14 @@ impl Request {
             .set_read_timeout(Some(Duration::from_secs(
                 TIMEOUT_SECONDS,
             )))
-            .map_err(|e| {
-                ServerError::invalid_request(format!(
-                    "Failed to set read timeout: {}",
-                    e
-                ))
-            })?;
+            .map_err(map_timeout_error)?;
 
         let mut buf_reader = BufReader::new(stream);
         let mut request_line = String::new();
 
-        let _ =
-            buf_reader.read_line(&mut request_line).map_err(|e| {
-                ServerError::invalid_request(format!(
-                    "Failed to read request line: {}",
-                    e
-                ))
-            })?;
+        let _ = buf_reader
+            .read_line(&mut request_line)
+            .map_err(map_read_error)?;
 
         // Trim the trailing \r\n before checking the length
         let trimmed_request_line = request_line.trim_end();
@@ -126,9 +140,11 @@ impl Request {
         }
 
         let path = parts[1].to_string();
-        if !path.starts_with('/') {
+        let is_options_asterisk =
+            method.eq_ignore_ascii_case("OPTIONS") && path == "*";
+        if !path.starts_with('/') && !is_options_asterisk {
             return Err(ServerError::invalid_request(
-                "Invalid path: must start with '/'",
+                "Invalid path: must start with '/' (or be '*' for OPTIONS)",
             ));
         }
 
@@ -140,10 +156,13 @@ impl Request {
             )));
         }
 
+        let headers = Self::read_headers(&mut buf_reader)?;
+
         Ok(Request {
             method,
             path,
             version,
+            headers,
         })
     }
 
@@ -172,6 +191,18 @@ impl Request {
     /// A string slice containing the HTTP version (e.g., "HTTP/1.1").
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    /// Returns the value of a header by case-insensitive name.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
+
+    /// Returns all parsed headers.
+    pub fn headers(&self) -> &HashMap<String, String> {
+        &self.headers
     }
 
     /// Checks if the given method is a valid HTTP method.
@@ -209,6 +240,55 @@ impl Request {
         version.eq_ignore_ascii_case("HTTP/1.0")
             || version.eq_ignore_ascii_case("HTTP/1.1")
     }
+
+    fn read_headers<R: BufRead>(
+        reader: &mut R,
+    ) -> Result<HashMap<String, String>, ServerError> {
+        let mut headers = HashMap::new();
+        let mut total_bytes = 0_usize;
+
+        loop {
+            let mut line = String::new();
+            let bytes =
+                reader.read_line(&mut line).map_err(map_read_error)?;
+            if bytes == 0 {
+                break;
+            }
+            total_bytes = total_bytes.saturating_add(bytes);
+            if total_bytes > MAX_HEADER_BYTES {
+                return Err(ServerError::invalid_request(
+                    "Header section too large",
+                ));
+            }
+
+            let trimmed = line.trim_end();
+            if trimmed.is_empty() {
+                break;
+            }
+            if trimmed.len() > MAX_HEADER_LINE_LENGTH {
+                return Err(ServerError::invalid_request(
+                    "Header line too long",
+                ));
+            }
+            let (name, value) =
+                trimmed.split_once(':').ok_or_else(|| {
+                    ServerError::invalid_request(
+                        "Malformed header line",
+                    )
+                })?;
+            if headers.len() >= MAX_HEADER_COUNT {
+                return Err(ServerError::invalid_request(
+                    "Too many request headers",
+                ));
+            }
+            let _ = headers.insert(
+                name.trim().to_ascii_lowercase(),
+                value.trim().to_string(),
+            );
+        }
+
+        Ok(headers)
+    }
 }
 
 impl fmt::Display for Request {
@@ -239,6 +319,7 @@ mod tests {
         assert_eq!(request.method(), "GET");
         assert_eq!(request.path(), "/index.html");
         assert_eq!(request.version(), "HTTP/1.1");
+        assert!(request.headers().is_empty());
     }
 
     #[test]
@@ -278,11 +359,7 @@ mod tests {
         let stream = TcpStream::connect(addr).unwrap();
         let result = Request::from_stream(&stream);
 
-        assert!(
-            result.is_ok(),
-            "Max length request should be valid. Error: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap().path().len(),
             MAX_REQUEST_LINE_LENGTH - 16
@@ -309,16 +386,12 @@ mod tests {
             "Oversized request should be invalid. Request: {:?}",
             result
         );
-        match result.unwrap_err() {
-            ServerError::InvalidRequest(msg) => {
-                assert!(
-                    msg.starts_with("Request line too long:"),
-                    "Unexpected error message: {}",
-                    msg
-                );
-            }
-            _ => panic!("Unexpected error type"),
-        }
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Request line too long:"),
+            "Unexpected error message: {}",
+            msg
+        );
     }
 
     #[test]
@@ -359,5 +432,78 @@ mod tests {
             result.unwrap_err(),
             ServerError::InvalidRequest(_)
         ));
+    }
+
+    #[test]
+    fn test_head_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let _ = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"HEAD /index.html HTTP/1.1\r\n").unwrap();
+        });
+
+        let stream = TcpStream::connect(addr).unwrap();
+        let request = Request::from_stream(&stream).unwrap();
+
+        assert_eq!(request.method(), "HEAD");
+        assert_eq!(request.path(), "/index.html");
+        assert_eq!(request.version(), "HTTP/1.1");
+    }
+
+    #[test]
+    fn test_options_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let _ = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"OPTIONS * HTTP/1.1\r\n").unwrap();
+        });
+
+        let stream = TcpStream::connect(addr).unwrap();
+        let request = Request::from_stream(&stream).unwrap();
+
+        assert_eq!(request.method(), "OPTIONS");
+        assert_eq!(request.path(), "*");
+        assert_eq!(request.version(), "HTTP/1.1");
+    }
+
+    #[test]
+    fn test_internal_error_mapping_helpers() {
+        let timeout_err =
+            io::Error::new(io::ErrorKind::TimedOut, "timeout");
+        let mapped = map_timeout_error(timeout_err);
+        assert!(
+            mapped.to_string().contains("Failed to set read timeout")
+        );
+
+        let read_err =
+            io::Error::new(io::ErrorKind::UnexpectedEof, "eof");
+        let mapped = map_read_error(read_err);
+        assert!(
+            mapped.to_string().contains("Failed to read request line")
+        );
+    }
+
+    #[test]
+    fn test_parses_headers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let _ = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .write_all(
+                    b"GET /index.html HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-1\r\n\r\n",
+                )
+                .unwrap();
+        });
+
+        let stream = TcpStream::connect(addr).unwrap();
+        let request = Request::from_stream(&stream).unwrap();
+        assert_eq!(request.header("host"), Some("localhost"));
+        assert_eq!(request.header("range"), Some("bytes=0-1"));
     }
 }

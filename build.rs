@@ -15,10 +15,8 @@ use std::process;
 ///
 /// # Returns
 ///
-/// * `Some(true)` - If the current Rustc version is at least the minimum
-///    required version.
-/// * `Some(false)` - If the current Rustc version is less than the minimum
-///    required version.
+/// * `Some(true)` - If the current Rustc version is at least the minimum required version.
+/// * `Some(false)` - If the current Rustc version is less than the minimum required version.
 /// * `None` - If the current Rustc version cannot be determined.
 ///
 /// # Errors
@@ -29,7 +27,7 @@ use std::process;
 /// # Examples
 ///
 /// ```rust
-/// let min_version = "1.56";
+/// let min_version = "1.87";
 ///
 /// match version_check::is_min_version(min_version) {
 ///     Some(true) => println!("Rustc version is at least {}", min_version),
@@ -44,12 +42,15 @@ use std::process;
 /// }
 /// ```
 fn main() {
-    let min_version = "1.56";
+    let min_version = "1.87";
 
     match version_check::is_min_version(min_version) {
         Some(true) => {}
         _ => {
-            eprintln!("'fd' requires Rustc version >= {}", min_version);
+            eprintln!(
+                "'http-handle' requires Rustc version >= {}",
+                min_version
+            );
             process::exit(1);
         }
     }

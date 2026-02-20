@@ -34,5 +34,33 @@ pub mod response;
 /// those related to connections and malformed requests.
 pub mod error;
 
+/// Language detection primitives with runtime custom patterns.
+pub mod language;
+
+/// Async helpers for hardened blocking task execution.
+pub mod async_runtime;
+
+#[cfg(feature = "async")]
+/// Async Tokio-based server entrypoints.
+pub mod async_server;
+
+#[cfg(feature = "batch")]
+/// Batch processing APIs.
+pub mod batch;
+
+#[cfg(feature = "streaming")]
+/// Chunked streaming APIs.
+pub mod streaming;
+
+#[cfg(feature = "optimized")]
+/// Zero-cost optimized lookups.
+pub mod optimized;
+
+/// Observability helpers.
+pub mod observability;
+
 pub use error::ServerError;
-pub use server::Server;
+pub use language::{Language, LanguageDetector};
+pub use server::{
+    ConnectionPool, Server, ServerBuilder, ShutdownSignal, ThreadPool,
+};

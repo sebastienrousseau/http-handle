@@ -17,8 +17,8 @@
 //! cargo run --example response_example
 //! ```
 
-use http_handle::response::Response;
 use http_handle::ServerError;
+use http_handle::response::Response;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -84,7 +84,9 @@ fn handle_client(stream: &mut TcpStream) -> Result<(), ServerError> {
             ServerError::Io(ref err)
                 if err.kind() == ErrorKind::BrokenPipe =>
             {
-                println!("❗ Server: Client disconnected (Broken pipe), but response was sent successfully.");
+                println!(
+                    "❗ Server: Client disconnected (Broken pipe), but response was sent successfully."
+                );
             }
             _ => return Err(e),
         }

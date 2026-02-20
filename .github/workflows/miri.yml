@@ -1,0 +1,18 @@
+name: 🔬 Miri
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "13 2 * * 1"
+
+jobs:
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - run: rustup override set nightly
+      - run: cargo miri setup
+      - run: cargo miri test --lib

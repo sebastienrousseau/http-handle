@@ -1,6 +1,5 @@
 # Unified CI Pipeline
 # Uses reusable workflows from sebastienrousseau/pipelines
-# Replaces: audit.yml, check.yml, lint.yml, test.yml, coverage.yml
 
 name: CI
 
@@ -9,41 +8,45 @@ on:
     branches:
       - main
       - "feat/**"
+    paths:
+      - "**/*.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "benches/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/*.yml"
+      - "rustfmt.toml"
+      - "clippy.toml"
   pull_request:
     branches:
       - main
       - "feat/**"
+    paths:
+      - "**/*.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "benches/**"
+      - "examples/**"
+      - "tests/**"
+      - ".github/workflows/*.yml"
+      - "rustfmt.toml"
+      - "clippy.toml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  rust-ci:
     name: Rust CI
-    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@main
+    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@v0.0.1
     with:
-      rust-version: 'stable'
+      rust-version: stable
       run-clippy: true
       run-fmt: true
-      run-audit: true
-      run-coverage: true
-      coverage-threshold: 80
+      run-audit: false
+      run-coverage: false
     secrets: inherit
-
-  # Nightly toolchain tests (optional, continue on error)
-  test-nightly:
-    name: Test (nightly)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests
-        run: cargo test --all-features

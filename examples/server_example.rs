@@ -18,16 +18,16 @@
 //! cargo run --example server_example
 //! ```
 
-use http_handle::request::Request;
 use http_handle::ServerError;
+use http_handle::request::Request;
 use std::fs;
 use std::io::Result;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::Duration;

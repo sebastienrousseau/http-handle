@@ -117,6 +117,9 @@ impl Response {
         &self,
         stream: &mut W,
     ) -> Result<(), ServerError> {
+        let mut has_content_length = false;
+        let mut has_connection = false;
+
         write!(
             stream,
             "HTTP/1.1 {} {}\r\n",
@@ -124,7 +127,20 @@ impl Response {
         )?;
 
         for (name, value) in &self.headers {
+            if name.eq_ignore_ascii_case("content-length") {
+                has_content_length = true;
+            }
+            if name.eq_ignore_ascii_case("connection") {
+                has_connection = true;
+            }
             write!(stream, "{}: {}\r\n", name, value)?;
+        }
+
+        if !has_content_length {
+            write!(stream, "Content-Length: {}\r\n", self.body.len())?;
+        }
+        if !has_connection {
+            write!(stream, "Connection: close\r\n")?;
         }
 
         write!(stream, "\r\n")?;
@@ -207,7 +223,7 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let expected_output = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
+        let expected_output = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, world!";
         let written_data = mock_stream.get_written_data();
 
         assert_eq!(written_data, expected_output);
@@ -224,7 +240,7 @@ mod tests {
 
         impl Write for FailingStream {
             fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-                Err(io::Error::new(io::ErrorKind::Other, "write error"))
+                Err(io::Error::other("write error"))
             }
 
             fn flush(&mut self) -> io::Result<()> {
@@ -234,6 +250,7 @@ mod tests {
 
         let mut failing_stream = FailingStream;
         let result = response.send(&mut failing_stream);
+        failing_stream.flush().expect("flush");
 
         assert!(result.is_err());
     }

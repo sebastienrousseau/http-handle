@@ -6,10 +6,10 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.2"                           # Initial version of the crate
+version = "0.0.3"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
-edition = "2021"                            # Rust edition being used (2021 edition is the latest stable)
-rust-version = "1.56.0"                     # Minimum supported Rust version
+edition = "2024"                            # Rust edition
+rust-version = "1.87.0"                     # Minimum supported Rust version
 license = "MIT OR Apache-2.0"               # Dual licensing strategy for MIT and Apache-2.0
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
@@ -26,12 +26,16 @@ build = "build.rs"                          # Path to the build script (optional
 [dependencies]
 # Required dependencies for building and running the project.
 thiserror = "2.0"                           # Error handling library for defining custom errors
-anyhow = "1.0"                              # Error handling for context propagation
 serde = { version = "1.0", features = ["derive"] } # Serialization/deserialization with derive features
 serde_json = "1.0"                          # JSON support with Serde
 log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
 commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging"] }
+ctrlc = "3.4"                               # Signal handling for graceful shutdown
+regex = "1.11"                              # Runtime custom language pattern support
+tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net"] } # Async runtime support
+tracing = { version = "0.1", optional = true }     # Structured logging
+tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] } # Tracing subscriber
 
 # -----------------------------------------------------------------------------
 # Library Configuration
@@ -57,6 +61,7 @@ tempfile = "3.13"                            # Temporary file creation for tests
 assert_fs = "1.1"                           # File system assertion library for tests
 predicates = "3.1"                          # Predicate assertions for test conditions
 criterion = "0.5"                           # Benchmarking library to test performance
+proptest = "1.6"                            # Property-based testing
 
 # -----------------------------------------------------------------------------
 # Examples
@@ -91,6 +96,16 @@ path = "examples/response_example.rs"      # Path to the example file
 name = "server_example"                    # Name of the example
 path = "examples/server_example.rs"        # Path to the example file
 
+[[example]]
+# Example code demonstrating graceful shutdown.
+name = "graceful_shutdown_example"         # Name of the example
+path = "examples/graceful_shutdown_example.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating ServerBuilder pattern usage.
+name = "server_builder_example"            # Name of the example
+path = "examples/server_builder_example.rs" # Path to the example file
+
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
 # -----------------------------------------------------------------------------
@@ -109,7 +124,11 @@ debug = true                                # Include debug symbols for better d
 [features]
 # Optional features that can be enabled or disabled.
 default = []                                # No default features enabled
-async = []                                  # Placeholder for future asynchronous feature support
+async = ["dep:tokio"]                       # Async runtime and hardened blocking helper
+batch = []                                  # Concurrent batch processing APIs
+streaming = []                              # Chunked streaming APIs
+optimized = []                              # Zero-cost optimized lookups
+observability = ["dep:tracing", "dep:tracing-subscriber"] # Structured tracing/observability
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration
@@ -128,7 +147,7 @@ targets = ["x86_64-unknown-linux-gnu"]      # Default target platform for the do
 
 ## Warnings
 missing_copy_implementations = "warn"       # Warn if types can implement `Copy` but don’t
-missing_docs = "warn"                       # Warn if public items lack documentation
+missing_docs = "deny"                       # Deny if public items lack documentation
 unstable_features = "warn"                  # Warn on the usage of unstable features
 unused_extern_crates = "warn"               # Warn about unused external crates
 unused_results = "warn"                     # Warn if a result type is unused (e.g., errors ignored)
@@ -155,10 +174,10 @@ future_incompatible = { level = "deny", priority = -1 } # Handle future compatib
 keyword_idents = { level = "deny", priority = -1 }      # Deny usage of keywords as identifiers
 macro_use_extern_crate = "deny"             # Deny macro use of `extern crate`
 meta_variable_misuse = "deny"               # Deny misuse of meta variables in macros
-missing_fragment_specifier = "deny"         # Deny missing fragment specifiers in macros
 noop_method_call = "deny"                   # Deny method calls that have no effect
 rust_2018_idioms = { level = "deny", priority = -1 }    # Enforce Rust 2018 idioms
 rust_2021_compatibility = { level = "deny", priority = -1 } # Enforce Rust 2021 compatibility
+rust_2024_compatibility = { level = "deny", priority = -1 } # Enforce Rust 2024 compatibility
 single_use_lifetimes = "deny"               # Deny lifetimes that are used only once
 trivial_casts = "deny"                      # Deny trivial casts (e.g., `as` when unnecessary)
 trivial_numeric_casts = "deny"              # Deny trivial numeric casts (e.g., `i32` to `i64`)

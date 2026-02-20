@@ -21,8 +21,8 @@
 
 use http_handle::{Server, ServerError};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::Duration;
@@ -78,7 +78,9 @@ fn start_server(running: Arc<AtomicBool>) -> Result<(), ServerError> {
     // Provide both the address and the document root arguments
     let server = Server::new("127.0.0.1:8080", "./public");
 
-    println!("✅ Server successfully initialized. Listening on 127.0.0.1:8080");
+    println!(
+        "✅ Server successfully initialized. Listening on 127.0.0.1:8080"
+    );
 
     // Create a thread to run the server
     let _ = thread::spawn(move || {

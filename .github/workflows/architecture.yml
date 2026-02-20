@@ -1,0 +1,31 @@
+name: 🏗️ Architecture Guardrails
+
+on:
+  push:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - ".github/workflows/architecture.yml"
+  pull_request:
+    branches: [main, "feat/*"]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - ".github/workflows/architecture.yml"
+  workflow_dispatch:
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify module boundaries
+        run: |
+          set -euo pipefail
+          # Prevent cross-layer import cycles from low-level modules into server implementation.
+          if rg -n "crate::server" src/request.rs src/response.rs src/error.rs; then
+            echo "Boundary violation: low-level modules must not depend on server module"
+            exit 1
+          fi
+          echo "Architecture boundaries verified"
