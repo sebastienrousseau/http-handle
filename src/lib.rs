@@ -56,6 +56,10 @@ pub mod streaming;
 /// Zero-cost optimized lookups.
 pub mod optimized;
 
+#[cfg(feature = "http2")]
+/// HTTP/2 server entrypoints.
+pub mod http2_server;
+
 /// Observability helpers.
 pub mod observability;
 

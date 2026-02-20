@@ -87,6 +87,17 @@ To explore more examples, clone the repository and run the following command:
 cargo run --example example_name
 ```
 
+Key examples by capability:
+
+- Core server: `basic_server`, `server_builder_example`, `graceful_shutdown_example`
+- Request/response primitives: `request_example`, `response_example`, `error_example`
+- Unified + legacy library demos: `full_demo`, `lib_example_legacy`
+- Performance and pooling: `pooling_performance_example`, `scenario_server_policies`
+- Language and optimization: `feature_language_detection`, `feature_optimized_lookups`
+- Batch and streaming: `feature_batch_processing`, `feature_streaming_chunks`
+- Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`
+- Observability: `feature_observability`
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

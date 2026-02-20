@@ -891,7 +891,6 @@ pub(crate) fn handle_connection(
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
     let response = build_response_for_stream(server, &stream, peer_ip);
-    record_metrics(&response);
     response.send(&mut stream)?;
     Ok(())
 }
@@ -926,7 +925,6 @@ fn handle_connection_tracked(
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
     let response = build_response_for_stream(server, &stream, peer_ip);
-    record_metrics(&response);
     response.send(&mut stream)?;
     Ok(())
 }
@@ -949,7 +947,7 @@ fn build_response_for_stream(
                     return generate_too_many_requests_response();
                 }
             }
-            build_response_for_request(server, &request)
+            build_response_for_request_with_metrics(server, &request)
         }
         Err(error) => {
             response_from_error(&error, &server.document_root)
@@ -957,7 +955,21 @@ fn build_response_for_stream(
     }
 }
 
-fn build_response_for_request(
+/// Builds a response for an already parsed request and records response metrics.
+///
+/// This is shared by protocol-specific frontends (for example HTTP/1 and HTTP/2)
+/// to keep behavior consistent across server entrypoints.
+pub(crate) fn build_response_for_request_with_metrics(
+    server: &Server,
+    request: &Request,
+) -> Response {
+    let response = build_response_for_request(server, request);
+    record_metrics(&response);
+    response
+}
+
+/// Builds a response for an already parsed request and applies server policies.
+pub(crate) fn build_response_for_request(
     server: &Server,
     request: &Request,
 ) -> Response {

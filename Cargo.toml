@@ -36,6 +36,9 @@ regex = "1.11"                              # Runtime custom language pattern su
 tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net"] } # Async runtime support
 tracing = { version = "0.1", optional = true }     # Structured logging
 tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] } # Tracing subscriber
+h2 = { version = "0.4", optional = true }          # HTTP/2 protocol support
+http = { version = "1.3", optional = true }        # HTTP type definitions for h2
+bytes = { version = "1.10", optional = true }      # Zero-copy byte buffers for h2 body frames
 
 # -----------------------------------------------------------------------------
 # Library Configuration
@@ -78,8 +81,13 @@ path = "examples/error_example.rs"          # Path to the example file
 
 [[example]]
 # Example code demonstrating the library as a library.
-name = "lib_example"                        # Name of the example
-path = "examples/lib_example.rs"            # Path to the example file
+name = "full_demo"                          # Name of the example
+path = "examples/full_demo.rs"              # Path to the example file
+
+[[example]]
+# Legacy library example preserved from earlier revisions.
+name = "lib_example_legacy"                 # Name of the example
+path = "examples/lib_example_legacy.rs"     # Path to the example file
 
 [[example]]
 # Example code demonstrating request handling.
@@ -106,6 +114,51 @@ path = "examples/graceful_shutdown_example.rs" # Path to the example file
 name = "server_builder_example"            # Name of the example
 path = "examples/server_builder_example.rs" # Path to the example file
 
+[[example]]
+# Example code demonstrating language detection with custom patterns.
+name = "feature_language_detection"        # Name of the example
+path = "examples/feature_language_detection.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating concurrent batch processing.
+name = "feature_batch_processing"          # Name of the example
+path = "examples/feature_batch_processing.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating chunked file streaming.
+name = "feature_streaming_chunks"          # Name of the example
+path = "examples/feature_streaming_chunks.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating optimized lookup helpers.
+name = "feature_optimized_lookups"         # Name of the example
+path = "examples/feature_optimized_lookups.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating observability initialization.
+name = "feature_observability"             # Name of the example
+path = "examples/feature_observability.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating async runtime helper.
+name = "feature_async_runtime"             # Name of the example
+path = "examples/feature_async_runtime.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating async server startup.
+name = "feature_async_server"              # Name of the example
+path = "examples/feature_async_server.rs"  # Path to the example file
+
+[[example]]
+# Example code demonstrating HTTP/2 server startup.
+name = "feature_http2_server"              # Name of the example
+path = "examples/feature_http2_server.rs"  # Path to the example file
+
+[[example]]
+# Example code demonstrating practical server policy configuration.
+name = "scenario_server_policies"          # Name of the example
+path = "examples/scenario_server_policies.rs" # Path to the example file
+
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
 # -----------------------------------------------------------------------------
@@ -129,6 +182,7 @@ batch = []                                  # Concurrent batch processing APIs
 streaming = []                              # Chunked streaming APIs
 optimized = []                              # Zero-cost optimized lookups
 observability = ["dep:tracing", "dep:tracing-subscriber"] # Structured tracing/observability
+http2 = ["dep:tokio", "dep:h2", "dep:http", "dep:bytes"] # HTTP/2 server foundation (h2c)
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration
