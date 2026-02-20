@@ -17,8 +17,9 @@
 //! - The benchmark measures the time taken to process the request and receive the response.
 
 use criterion::{
-    Criterion, black_box, criterion_group, criterion_main,
+    Criterion, criterion_group, criterion_main,
 };
+use std::hint::black_box;
 use http_handle::Server;
 use std::fs::File;
 use std::io::{Read, Write};

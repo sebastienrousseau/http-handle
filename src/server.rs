@@ -521,11 +521,37 @@ impl Server {
         &self,
         shutdown: Arc<ShutdownSignal>,
     ) -> io::Result<()> {
+        self.start_with_shutdown_signal_and_ready(shutdown, |_| {})
+    }
+
+    /// Starts the server with a shutdown signal and reports the actual bound address.
+    ///
+    /// This is useful when binding to port `0` in tests and callers need the kernel-assigned
+    /// port before sending requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `shutdown` - The shutdown signal to coordinate graceful termination
+    /// * `on_ready` - Callback invoked once with the actual bound `ip:port`
+    ///
+    /// # Returns
+    ///
+    /// A `Result` indicating success or an I/O error.
+    pub fn start_with_shutdown_signal_and_ready<F>(
+        &self,
+        shutdown: Arc<ShutdownSignal>,
+        on_ready: F,
+    ) -> io::Result<()>
+    where
+        F: FnOnce(String),
+    {
         // Install signal handlers
         Self::install_signal_handlers(shutdown.clone());
 
         let listener = TcpListener::bind(&self.address)?;
-        println!("❯ Server is now running at http://{}", self.address);
+        let bound_address = listener.local_addr()?.to_string();
+        on_ready(bound_address.clone());
+        println!("❯ Server is now running at http://{}", bound_address);
         println!("  Document root: {}", self.document_root.display());
         println!("  Press Ctrl+C to stop the server gracefully.");
 
@@ -2142,6 +2168,54 @@ mod tests {
         );
         assert!(server.start_with_thread_pool(1).is_err());
         assert!(server.start_with_pooling(1, 1).is_err());
+    }
+
+    #[test]
+    fn test_start_with_shutdown_signal_and_ready_reports_bound_address()
+    {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        let (ready_tx, ready_rx) = mpsc::channel::<String>();
+        let shutdown =
+            Arc::new(ShutdownSignal::new(Duration::from_secs(2)));
+        let shutdown_for_server = shutdown.clone();
+        let server_for_thread = server.clone();
+
+        let handle = thread::spawn(move || {
+            server_for_thread
+                .start_with_shutdown_signal_and_ready(
+                    shutdown_for_server,
+                    move |addr| {
+                        let _ = ready_tx.send(addr);
+                    },
+                )
+                .expect("server run");
+        });
+
+        let bound_addr = ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("bound address");
+        assert!(bound_addr.starts_with("127.0.0.1:"));
+        assert_ne!(bound_addr, "127.0.0.1:0");
+
+        let mut stream =
+            TcpStream::connect(&bound_addr).expect("connect");
+        stream
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response);
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+
+        shutdown.shutdown();
+        handle.join().expect("join");
     }
 
     #[test]

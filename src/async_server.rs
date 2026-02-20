@@ -40,7 +40,7 @@ mod tests {
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
     use tempfile::TempDir;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     fn free_addr() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");

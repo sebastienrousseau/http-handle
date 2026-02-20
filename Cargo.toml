@@ -30,7 +30,7 @@ serde = { version = "1.0", features = ["derive"] } # Serialization/deserializati
 serde_json = "1.0"                          # JSON support with Serde
 log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
-commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging"] }
+commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging", "time"] }
 ctrlc = "3.4"                               # Signal handling for graceful shutdown
 regex = "1.11"                              # Runtime custom language pattern support
 tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net"] } # Async runtime support
@@ -60,7 +60,7 @@ version_check = "0.9"                       # Ensures that a compatible Rust ver
 tempfile = "3.13"                            # Temporary file creation for tests
 assert_fs = "1.1"                           # File system assertion library for tests
 predicates = "3.1"                          # Predicate assertions for test conditions
-criterion = "0.5"                           # Benchmarking library to test performance
+criterion = "0.8"                           # Benchmarking library to test performance
 proptest = "1.6"                            # Property-based testing
 
 # -----------------------------------------------------------------------------
