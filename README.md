@@ -38,7 +38,7 @@ The `http-handle` is a robust Rust library designed for serving static websites.
 - **Enterprise Policy Layer**: TLS/mTLS, API key/JWT auth, runtime profiles, and hot-reloadable config.
 - **Pluggable Authorization**: RBAC/ABAC policy adapters with composable authorization hooks.
 - **Portability Matrix**: Cross-platform conformance tests and target-tier support matrix.
-- **Protocol Support Roadmap**: HTTP/2 runtime support plus HTTP/3 ALPN/fallback profile primitives.
+- **Protocol Support Roadmap**: HTTP/2 runtime support plus HTTP/3 QUIC tuning presets, ALPN policy, and explicit fallback telemetry.
 - **Distributed Rate Limiting**: Pluggable Redis/Memcached-style adapters with in-memory fallback backend.
 - **Tenant Isolation**: Tenant-scoped config store and secret-provider abstraction.
 - **Runtime Auto-Tuning**: Host-aware recommendations for high-performance runtime limits.

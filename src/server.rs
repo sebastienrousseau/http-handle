@@ -399,6 +399,7 @@ impl ConnectionPool {
 
     /// Attempts to acquire a connection from the pool
     pub fn acquire(&self) -> Result<ConnectionGuard, io::Error> {
+        #[allow(deprecated_in_future)]
         let reserved = self.active_connections.fetch_update(
             Ordering::SeqCst,
             Ordering::SeqCst,

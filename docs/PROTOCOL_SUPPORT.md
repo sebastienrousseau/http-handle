@@ -18,8 +18,19 @@ This document summarizes protocol capabilities in `http-handle`.
 - Implementation: `src/http3_profile.rs`
 - Capabilities:
   - production baseline profile
+  - QUIC runtime tuning presets (`Conservative`, `Balanced`, `Aggressive`)
   - ALPN route resolution (`h3`, `h2`, `http/1.1`)
+  - client-offered ALPN selection with server-order policy
   - explicit fallback chain generation for graceful downgrade
+  - decision tree with fallback reasons and telemetry line output
+
+### HTTP/3 Conformance Tests
+
+- Integration tests: `tests/http3_profile_conformance.rs`
+- Covered paths:
+  - ALPN matrix route stability
+  - h3-handshake failure downgrade behavior
+  - server-preferred ALPN policy enforcement
 
 This keeps protocol negotiation and fallback behavior explicit while HTTP/3
 transport integration remains modular.
