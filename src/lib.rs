@@ -61,6 +61,18 @@ pub mod optimized;
 /// HTTP/2 server entrypoints.
 pub mod http2_server;
 
+#[cfg(feature = "high-perf")]
+/// High-performance async-first server with backpressure.
+pub mod perf_server;
+
+#[cfg(feature = "http3-profile")]
+/// HTTP/3 production profile and ALPN fallback helpers.
+pub mod http3_profile;
+
+#[cfg(feature = "enterprise")]
+/// Enterprise configuration, auth, and policy helpers.
+pub mod enterprise;
+
 /// Observability helpers.
 pub mod observability;
 

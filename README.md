@@ -33,6 +33,10 @@ The `http-handle` is a robust Rust library designed for serving static websites.
 - **Customizable 404 Handling**: Support for custom 404 error pages.
 - **Threaded Connections**: Handle multiple connections concurrently using threads.
 - **Configurable Server**: Easy configuration of server address and document root.
+- **Async-First Performance Mode**: Backpressure-aware accept loop with queue limits and sendfile fast path.
+- **Precompressed Assets**: Built-in negotiation for Brotli, gzip, and zstd static assets.
+- **Enterprise Policy Layer**: TLS/mTLS, API key/JWT auth, runtime profiles, and hot-reloadable config.
+- **Portability Matrix**: Cross-platform conformance tests and target-tier support matrix.
 
 ## Installation
 
@@ -78,6 +82,7 @@ This will start a server listening on `127.0.0.1:8080`, serving files from the `
 ## Documentation
 
 For full API documentation, please visit [docs.rs/http-handle][04].
+Portability support and target matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md).
 
 ## Examples
 
@@ -93,6 +98,7 @@ Key examples by capability:
 - Request/response primitives: `request_example`, `response_example`, `error_example`
 - Unified + legacy library demos: `full_demo`, `lib_example_legacy`
 - Performance and pooling: `pooling_performance_example`, `scenario_server_policies`
+- Performance benchmarking target: `benchmark_target`
 - Language and optimization: `feature_language_detection`, `feature_optimized_lookups`
 - Batch and streaming: `feature_batch_processing`, `feature_streaming_chunks`
 - Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`

@@ -29,9 +29,11 @@ jobs:
           - "batch"
           - "streaming"
           - "optimized"
+          - "high-perf"
+          - "enterprise"
           - "http2"
           - "async,http2"
-          - "async,batch,streaming,optimized,http2"
+          - "async,batch,streaming,optimized,http2,high-perf,enterprise"
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

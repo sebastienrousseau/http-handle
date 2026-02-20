@@ -1128,6 +1128,16 @@ fn serve_file_response(
                 content_encoding = Some("br");
             }
         }
+        if content_encoding.is_none()
+            && (encoding.contains("zstd") || encoding.contains("zst"))
+        {
+            let candidate =
+                PathBuf::from(format!("{}.zst", path.display()));
+            if candidate.is_file() {
+                serving_path = candidate;
+                content_encoding = Some("zstd");
+            }
+        }
         if content_encoding.is_none() && encoding.contains("gzip") {
             let candidate =
                 PathBuf::from(format!("{}.gz", path.display()));
@@ -1409,14 +1419,32 @@ fn apply_response_policies(
                 name.eq_ignore_ascii_case("cache-control")
             });
         if !has_cache_control {
-            response.add_header(
-                "Cache-Control",
-                &format!("public, max-age={ttl}"),
-            );
+            if is_probably_immutable_asset_path(request.path()) {
+                response.add_header(
+                    "Cache-Control",
+                    "public, max-age=31536000, immutable",
+                );
+            } else {
+                response.add_header(
+                    "Cache-Control",
+                    &format!("public, max-age={ttl}"),
+                );
+            }
         }
     }
 
     response
+}
+
+fn is_probably_immutable_asset_path(path: &str) -> bool {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let Some((stem, _ext)) = file.rsplit_once('.') else {
+        return false;
+    };
+    let Some(hash) = stem.rsplit('-').next() else {
+        return false;
+    };
+    hash.len() >= 8 && hash.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Determines the content type based on the file extension.
@@ -2485,5 +2513,60 @@ mod tests {
         assert!(
             response.starts_with("HTTP/1.1 503 SERVICE UNAVAILABLE")
         );
+    }
+
+    #[test]
+    fn test_immutable_cache_control_policy() {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .static_cache_ttl_secs(60)
+            .build()
+            .expect("server");
+
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/assets/app-abcdef12.js".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+        let response = apply_response_policies(
+            Response::new(200, "OK", b"ok".to_vec()),
+            &server,
+            &request,
+        );
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("cache-control")
+                && value.contains("immutable")
+        }));
+    }
+
+    #[test]
+    fn test_zstd_precompressed_asset_is_served() {
+        let root = setup_test_directory();
+        let file = root.path().join("index.html.zst");
+        fs::write(&file, b"zstd-data").expect("write");
+
+        let mut headers = HashMap::new();
+        let _ = headers.insert(
+            "accept-encoding".to_string(),
+            "zstd,gzip".to_string(),
+        );
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+
+        let response =
+            generate_response_with_cache(&request, root.path(), None)
+                .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-encoding")
+                && value.eq_ignore_ascii_case("zstd")
+        }));
+        assert_eq!(response.body, b"zstd-data");
     }
 }

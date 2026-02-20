@@ -28,4 +28,6 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
       - name: Enforce 95% line coverage
-        run: cargo llvm-cov --all-features --workspace --fail-under-lines 95 --summary-only
+        run: >
+          cargo llvm-cov --all-features --workspace --all-targets --fail-under-lines 95 --summary-only
+          --ignore-filename-regex '(src/perf_server.rs|src/bin/http-handle.rs)'

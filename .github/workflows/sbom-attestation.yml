@@ -1,0 +1,35 @@
+name: SBOM And Attestation
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write
+  contents: read
+  attestations: write
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release --bin http-handle
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./target/release/http-handle
+          output-file: sbom.spdx.json
+          format: spdx-json
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-spdx
+          path: sbom.spdx.json
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: sbom.spdx.json

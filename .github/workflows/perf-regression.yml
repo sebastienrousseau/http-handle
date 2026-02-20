@@ -1,0 +1,33 @@
+name: ⚡ Performance Regression
+
+on:
+  pull_request:
+    branches: [main, "feat/**"]
+    paths:
+      - "src/**"
+      - "benches/**"
+      - "examples/**"
+      - "scripts/perf/**"
+      - "Cargo.toml"
+      - ".github/workflows/perf-regression.yml"
+  workflow_dispatch:
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install bombardier + wrk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wrk golang-go netcat-openbsd
+          go install github.com/codesenberg/bombardier@latest
+          echo "${HOME}/go/bin" >> $GITHUB_PATH
+      - name: Run benchmark matrix with threshold
+        env:
+          HTTP_HANDLE_MODE: high-perf
+          HTTP_HANDLE_FEATURES: async,high-perf
+          MIN_RPS: "1500"
+        run: ./scripts/perf/benchmark_matrix.sh

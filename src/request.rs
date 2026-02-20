@@ -120,18 +120,30 @@ impl Request {
             )));
         }
 
-        let parts: Vec<&str> =
-            trimmed_request_line.split_whitespace().collect();
-
-        if parts.len() != REQUEST_PARTS {
+        let mut parts = trimmed_request_line.split_whitespace();
+        let Some(method_part) = parts.next() else {
+            return Err(ServerError::invalid_request(
+                "Invalid request line: missing method",
+            ));
+        };
+        let Some(path_part) = parts.next() else {
+            return Err(ServerError::invalid_request(
+                "Invalid request line: missing path",
+            ));
+        };
+        let Some(version_part) = parts.next() else {
+            return Err(ServerError::invalid_request(
+                "Invalid request line: missing HTTP version",
+            ));
+        };
+        if parts.next().is_some() {
             return Err(ServerError::invalid_request(format!(
-                "Invalid request line: expected {} parts, got {}",
-                REQUEST_PARTS,
-                parts.len()
+                "Invalid request line: expected {} parts",
+                REQUEST_PARTS
             )));
         }
 
-        let method = parts[0].to_string();
+        let method = method_part.to_string();
         if !Self::is_valid_method(&method) {
             return Err(ServerError::invalid_request(format!(
                 "Invalid HTTP method: {}",
@@ -139,7 +151,7 @@ impl Request {
             )));
         }
 
-        let path = parts[1].to_string();
+        let path = path_part.to_string();
         let is_options_asterisk =
             method.eq_ignore_ascii_case("OPTIONS") && path == "*";
         if !path.starts_with('/') && !is_options_asterisk {
@@ -148,7 +160,7 @@ impl Request {
             ));
         }
 
-        let version = parts[2].to_string();
+        let version = version_part.to_string();
         if !Self::is_valid_version(&version) {
             return Err(ServerError::invalid_request(format!(
                 "Invalid HTTP version: {}",
@@ -244,7 +256,7 @@ impl Request {
     fn read_headers<R: BufRead>(
         reader: &mut R,
     ) -> Result<HashMap<String, String>, ServerError> {
-        let mut headers = HashMap::new();
+        let mut headers = HashMap::with_capacity(16);
         let mut total_bytes = 0_usize;
 
         loop {

@@ -1,0 +1,32 @@
+name: SLSA Provenance Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_path:
+        description: "Path to artifact to verify"
+        required: true
+        type: string
+      provenance_path:
+        description: "Path to provenance file (in-toto)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.1
+      - name: Verify artifact provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+            "${{ github.event.inputs.artifact_path }}" \
+            --provenance-path "${{ github.event.inputs.provenance_path }}" \
+            --source-uri "github.com/${{ github.repository }}"

@@ -1,0 +1,51 @@
+name: 🌍 Portability Matrix
+
+on:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - ".github/workflows/portability.yml"
+      - "docs/PORTABILITY_MATRIX.md"
+  pull_request:
+    branches: [main, "feat/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - ".github/workflows/portability.yml"
+      - "docs/PORTABILITY_MATRIX.md"
+  workflow_dispatch:
+
+jobs:
+  host-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Host compile + conformance tests
+        run: |
+          cargo check --all-features
+          cargo test --test portability_conformance --all-features
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cross
+      - name: Cross check
+        run: cross check --all-features --target ${{ matrix.target }}

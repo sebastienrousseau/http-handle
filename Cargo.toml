@@ -33,12 +33,16 @@ env_logger = { version = "0.11", optional = true } # Optional logging with envir
 commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging", "time"] }
 ctrlc = "3.4"                               # Signal handling for graceful shutdown
 regex = "1.11"                              # Runtime custom language pattern support
-tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net"] } # Async runtime support
+tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
 tracing = { version = "0.1", optional = true }     # Structured logging
 tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] } # Tracing subscriber
 h2 = { version = "0.4", optional = true }          # HTTP/2 protocol support
 http = { version = "1.3", optional = true }        # HTTP type definitions for h2
 bytes = { version = "1.10", optional = true }      # Zero-copy byte buffers for h2 body frames
+libc = { version = "0.2", optional = true }        # Unix sendfile support
+notify = { version = "8.2", optional = true }      # Config hot-reload file watcher
+arc-swap = { version = "1.7", optional = true }    # Lock-free hot config swaps
+toml = { version = "0.9", optional = true }        # Profile config loading
 
 # -----------------------------------------------------------------------------
 # Library Configuration
@@ -166,6 +170,11 @@ required-features = ["http2"]              # Only build when HTTP/2 is enabled
 name = "scenario_server_policies"          # Name of the example
 path = "examples/scenario_server_policies.rs" # Path to the example file
 
+[[example]]
+# Benchmark target binary for external load tools.
+name = "benchmark_target"                  # Name of the example
+path = "examples/benchmark_target.rs"      # Path to the example file
+
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
 # -----------------------------------------------------------------------------
@@ -190,6 +199,12 @@ streaming = []                              # Chunked streaming APIs
 optimized = []                              # Zero-cost optimized lookups
 observability = ["dep:tracing", "dep:tracing-subscriber"] # Structured tracing/observability
 http2 = ["dep:tokio", "dep:h2", "dep:http", "dep:bytes"] # HTTP/2 server foundation (h2c)
+high-perf = ["dep:tokio", "dep:libc"]      # Async-first serving with backpressure and sendfile fast path
+tls = []                                    # TLS and mTLS configuration primitives
+auth = []                                   # Auth middleware (API key + JWT parsing hook)
+config = ["dep:notify", "dep:arc-swap", "dep:toml"] # Runtime profiles + hot reload
+enterprise = ["tls", "auth", "config", "observability"] # Enterprise-ready integrations
+http3-profile = []                          # HTTP/3 production profile and ALPN fallback helpers
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration
