@@ -2,7 +2,7 @@ name: ⚡ Performance Regression
 
 on:
   pull_request:
-    branches: [main, "feat/**"]
+    branches: [main]
     paths:
       - "src/**"
       - "benches/**"
@@ -11,6 +11,10 @@ on:
       - "Cargo.toml"
       - ".github/workflows/perf-regression.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   perf:

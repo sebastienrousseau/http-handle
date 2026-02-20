@@ -2,20 +2,24 @@ name: 📚 Docs Quality
 
 on:
   push:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "Cargo.toml"
       - "README.md"
       - ".github/workflows/docs-quality.yml"
   pull_request:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "Cargo.toml"
       - "README.md"
       - ".github/workflows/docs-quality.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   docs-quality:

@@ -2,7 +2,7 @@ name: 📈 Coverage Strict
 
 on:
   push:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "tests/**"
@@ -10,7 +10,7 @@ on:
       - "Cargo.lock"
       - ".github/workflows/coverage-strict.yml"
   pull_request:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "tests/**"
@@ -18,6 +18,10 @@ on:
       - "Cargo.lock"
       - ".github/workflows/coverage-strict.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   coverage:

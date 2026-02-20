@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - main
-      - "feat/**"
     paths:
       - "**/*.rs"
       - "Cargo.toml"
@@ -22,7 +21,6 @@ on:
   pull_request:
     branches:
       - main
-      - "feat/**"
     paths:
       - "**/*.rs"
       - "Cargo.toml"

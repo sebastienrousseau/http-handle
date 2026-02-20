@@ -2,7 +2,7 @@ name: 🌍 Portability Matrix
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
     paths:
       - "src/**"
       - "tests/**"
@@ -10,7 +10,7 @@ on:
       - ".github/workflows/portability.yml"
       - "docs/PORTABILITY_MATRIX.md"
   pull_request:
-    branches: [main, "feat/**"]
+    branches: [main]
     paths:
       - "src/**"
       - "tests/**"
@@ -18,6 +18,10 @@ on:
       - ".github/workflows/portability.yml"
       - "docs/PORTABILITY_MATRIX.md"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   host-matrix:

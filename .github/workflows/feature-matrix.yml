@@ -2,20 +2,24 @@ name: 🧩 Feature Matrix
 
 on:
   push:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/feature-matrix.yml"
   pull_request:
-    branches: [main, "feat/*"]
+    branches: [main]
     paths:
       - "src/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/feature-matrix.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   matrix:
