@@ -42,8 +42,15 @@ proptest! {
     #[test]
     fn custom_pattern_matches_runtime_literals(token in "[a-z]{3,12}") {
         let pattern = format!(r"\b{}\b", token);
-        let detector = LanguageDetector::new().with_custom_pattern(Language::Go, &pattern).expect("regex compiles");
         let input = format!("prefix {} suffix", token);
-        prop_assert_eq!(detector.detect(&input), Language::Go);
+        let baseline = LanguageDetector::new().detect(&input);
+        let detector = LanguageDetector::new().with_custom_pattern(Language::Go, &pattern).expect("regex compiles");
+        let detected = detector.detect(&input);
+        if baseline == Language::Unknown {
+            prop_assert_eq!(detected, Language::Go);
+        } else {
+            // Custom rules are appended; built-in higher-priority matches stay stable.
+            prop_assert_eq!(detected, baseline);
+        }
     }
 }
