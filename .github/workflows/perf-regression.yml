@@ -30,7 +30,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y wrk golang-go netcat-openbsd
-          go install github.com/codesenberg/bombardier@latest
+          go install github.com/codesenberg/bombardier@v1.2.6
           echo "${HOME}/go/bin" >> $GITHUB_PATH
       - name: Run benchmark matrix with threshold
         env:

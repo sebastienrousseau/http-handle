@@ -53,19 +53,32 @@ fn run_high_perf(
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let mut limits = http_handle::perf_server::PerfLimits {
-            max_inflight: 512,
-            max_queue: 2048,
-            sendfile_threshold_bytes: 64 * 1024,
+        let limits = {
+            #[cfg(feature = "autotune")]
+            {
+                if std::env::var("HTTP_HANDLE_AUTOTUNE").ok().as_deref()
+                    == Some("1")
+                {
+                    let profile =
+                        http_handle::runtime_autotune::detect_host_profile();
+                    http_handle::runtime_autotune::RuntimeTuneRecommendation::from_profile(profile).into_perf_limits()
+                } else {
+                    http_handle::perf_server::PerfLimits {
+                        max_inflight: 512,
+                        max_queue: 2048,
+                        sendfile_threshold_bytes: 64 * 1024,
+                    }
+                }
+            }
+            #[cfg(not(feature = "autotune"))]
+            {
+                http_handle::perf_server::PerfLimits {
+                    max_inflight: 512,
+                    max_queue: 2048,
+                    sendfile_threshold_bytes: 64 * 1024,
+                }
+            }
         };
-        #[cfg(feature = "autotune")]
-        if std::env::var("HTTP_HANDLE_AUTOTUNE").ok().as_deref()
-            == Some("1")
-        {
-            let profile =
-                http_handle::runtime_autotune::detect_host_profile();
-            limits = http_handle::runtime_autotune::RuntimeTuneRecommendation::from_profile(profile).into_perf_limits();
-        }
         runtime.block_on(http_handle::perf_server::start_high_perf(
             server, limits,
         ))?;
