@@ -16,12 +16,10 @@
 //! - A TCP client sends an HTTP request to fetch the HTML file, and the server responds.
 //! - The benchmark measures the time taken to process the request and receive the response.
 
-use criterion::{
-    Criterion, criterion_group, criterion_main,
-};
-use std::hint::black_box;
+use criterion::{Criterion, criterion_group, criterion_main};
 use http_handle::Server;
 use std::fs::File;
+use std::hint::black_box;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
