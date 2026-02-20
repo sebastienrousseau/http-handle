@@ -38,6 +38,7 @@ jobs:
           - "optimized"
           - "high-perf"
           - "enterprise"
+          - "http3-profile"
           - "http2"
           - "async,http2"
           - "async,batch,streaming,optimized,http2,high-perf,enterprise"

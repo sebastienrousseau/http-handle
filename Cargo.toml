@@ -166,6 +166,12 @@ path = "examples/feature_http2_server.rs"  # Path to the example file
 required-features = ["http2"]              # Only build when HTTP/2 is enabled
 
 [[example]]
+# Example code demonstrating HTTP/3 ALPN profile and fallback policy.
+name = "feature_http3_profile"             # Name of the example
+path = "examples/feature_http3_profile.rs" # Path to the example file
+required-features = ["http3-profile"]      # Only build when HTTP/3 profile is enabled
+
+[[example]]
 # Example code demonstrating practical server policy configuration.
 name = "scenario_server_policies"          # Name of the example
 path = "examples/scenario_server_policies.rs" # Path to the example file

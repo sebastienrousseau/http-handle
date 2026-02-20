@@ -36,7 +36,9 @@ The `http-handle` is a robust Rust library designed for serving static websites.
 - **Async-First Performance Mode**: Backpressure-aware accept loop with queue limits and sendfile fast path.
 - **Precompressed Assets**: Built-in negotiation for Brotli, gzip, and zstd static assets.
 - **Enterprise Policy Layer**: TLS/mTLS, API key/JWT auth, runtime profiles, and hot-reloadable config.
+- **Pluggable Authorization**: RBAC/ABAC policy adapters with composable authorization hooks.
 - **Portability Matrix**: Cross-platform conformance tests and target-tier support matrix.
+- **Protocol Support Roadmap**: HTTP/2 runtime support plus HTTP/3 ALPN/fallback profile primitives.
 
 ## Installation
 
@@ -83,6 +85,10 @@ This will start a server listening on `127.0.0.1:8080`, serving files from the `
 
 For full API documentation, please visit [docs.rs/http-handle][04].
 Portability support and target matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md).
+Protocol support details: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md).
+SLSA/Scorecard policies: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md),
+[`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md).
+Container hardening policy: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md).
 
 ## Examples
 
@@ -101,7 +107,7 @@ Key examples by capability:
 - Performance benchmarking target: `benchmark_target`
 - Language and optimization: `feature_language_detection`, `feature_optimized_lookups`
 - Batch and streaming: `feature_batch_processing`, `feature_streaming_chunks`
-- Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`
+- Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`, `feature_http3_profile`
 - Observability: `feature_observability`
 
 ## Contributing

@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "sync" => server.start()?,
         "async" => run_async(server)?,
         "high-perf" => run_high_perf(server)?,
+        "http2" => run_http2(server)?,
         other => {
             return Err(format!("unsupported mode: {other}").into());
         }
@@ -67,5 +68,22 @@ fn run_high_perf(
         let _ = server;
         Err("enable feature 'high-perf' for HTTP_HANDLE_MODE=high-perf"
             .into())
+    }
+}
+
+fn run_http2(server: Server) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "http2")]
+    {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime
+            .block_on(http_handle::http2_server::start_http2(server))?;
+        Ok(())
+    }
+    #[cfg(not(feature = "http2"))]
+    {
+        let _ = server;
+        Err("enable feature 'http2' for HTTP_HANDLE_MODE=http2".into())
     }
 }

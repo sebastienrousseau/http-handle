@@ -10,7 +10,7 @@ use notify::{RecursiveMode, Watcher};
 #[cfg(feature = "enterprise")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 #[cfg(feature = "enterprise")]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "enterprise")]
@@ -274,6 +274,222 @@ pub fn validate_mtls_subject(
         .any(|allowed| allowed == subject_dn)
 }
 
+/// Authorization request context for policy evaluation hooks.
+#[cfg(feature = "enterprise")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuthorizationContext {
+    /// Authenticated subject identifier.
+    pub subject: String,
+    /// Target resource identifier.
+    pub resource: String,
+    /// Requested action.
+    pub action: String,
+    /// Arbitrary subject/environment attributes.
+    pub attributes: HashMap<String, String>,
+}
+
+/// Authorization decision.
+#[cfg(feature = "enterprise")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AuthorizationDecision {
+    /// Request is authorized.
+    Allow,
+    /// Request is denied with reason.
+    Deny(String),
+}
+
+/// Pluggable authorization engine.
+#[cfg(feature = "enterprise")]
+pub trait AuthorizationEngine: Send + Sync {
+    /// Evaluates access for a given request context.
+    fn evaluate(
+        &self,
+        context: &AuthorizationContext,
+    ) -> AuthorizationDecision;
+}
+
+/// RBAC adapter with explicit subject role mapping.
+#[cfg(feature = "enterprise")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RbacAdapter {
+    /// Subject -> role set map.
+    pub subject_roles: HashMap<String, HashSet<String>>,
+    /// Role -> allowed (resource, action) tuples.
+    pub role_permissions: HashMap<String, HashSet<(String, String)>>,
+}
+
+#[cfg(feature = "enterprise")]
+impl RbacAdapter {
+    /// Grants a role to a subject.
+    pub fn grant_role(
+        mut self,
+        subject: impl Into<String>,
+        role: impl Into<String>,
+    ) -> Self {
+        let entry =
+            self.subject_roles.entry(subject.into()).or_default();
+        let _ = entry.insert(role.into());
+        self
+    }
+
+    /// Grants a permission tuple to a role.
+    pub fn grant_permission(
+        mut self,
+        role: impl Into<String>,
+        resource: impl Into<String>,
+        action: impl Into<String>,
+    ) -> Self {
+        let entry =
+            self.role_permissions.entry(role.into()).or_default();
+        let _ = entry.insert((resource.into(), action.into()));
+        self
+    }
+}
+
+#[cfg(feature = "enterprise")]
+impl AuthorizationEngine for RbacAdapter {
+    fn evaluate(
+        &self,
+        context: &AuthorizationContext,
+    ) -> AuthorizationDecision {
+        let Some(roles) = self.subject_roles.get(&context.subject)
+        else {
+            return AuthorizationDecision::Deny(
+                "rbac: subject has no roles".to_string(),
+            );
+        };
+
+        let allowed = roles.iter().any(|role| {
+            self.role_permissions
+                .get(role)
+                .map(|perms| {
+                    perms.contains(&(
+                        context.resource.clone(),
+                        context.action.clone(),
+                    ))
+                })
+                .unwrap_or(false)
+        });
+
+        if allowed {
+            AuthorizationDecision::Allow
+        } else {
+            AuthorizationDecision::Deny(
+                "rbac: permission missing".to_string(),
+            )
+        }
+    }
+}
+
+/// ABAC rule for resource/action with required attributes.
+#[cfg(feature = "enterprise")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AbacRule {
+    /// Matched resource.
+    pub resource: String,
+    /// Matched action.
+    pub action: String,
+    /// Required attributes with allowed value sets.
+    pub required_attributes: HashMap<String, HashSet<String>>,
+}
+
+/// ABAC adapter backed by explicit rules.
+#[cfg(feature = "enterprise")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AbacAdapter {
+    /// Ordered rules evaluated with first-match semantics.
+    pub rules: Vec<AbacRule>,
+}
+
+#[cfg(feature = "enterprise")]
+impl AbacAdapter {
+    /// Adds a new ABAC rule.
+    pub fn with_rule(mut self, rule: AbacRule) -> Self {
+        self.rules.push(rule);
+        self
+    }
+}
+
+#[cfg(feature = "enterprise")]
+impl AuthorizationEngine for AbacAdapter {
+    fn evaluate(
+        &self,
+        context: &AuthorizationContext,
+    ) -> AuthorizationDecision {
+        let Some(rule) = self.rules.iter().find(|rule| {
+            rule.resource == context.resource
+                && rule.action == context.action
+        }) else {
+            return AuthorizationDecision::Deny(
+                "abac: no matching rule".to_string(),
+            );
+        };
+
+        for (key, allowed_values) in &rule.required_attributes {
+            let Some(value) = context.attributes.get(key) else {
+                return AuthorizationDecision::Deny(format!(
+                    "abac: missing attribute '{key}'"
+                ));
+            };
+            if !allowed_values.contains(value) {
+                return AuthorizationDecision::Deny(format!(
+                    "abac: attribute '{key}' denied"
+                ));
+            }
+        }
+        AuthorizationDecision::Allow
+    }
+}
+
+/// Composite authorization hook that short-circuits on first deny.
+#[cfg(feature = "enterprise")]
+#[derive(Default)]
+pub struct AuthorizationHook {
+    engines: Vec<Box<dyn AuthorizationEngine>>,
+}
+
+#[cfg(feature = "enterprise")]
+impl std::fmt::Debug for AuthorizationHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthorizationHook")
+            .field("engines_len", &self.engines.len())
+            .finish()
+    }
+}
+
+#[cfg(feature = "enterprise")]
+impl AuthorizationHook {
+    /// Creates an empty authorization hook chain.
+    pub fn new() -> Self {
+        Self {
+            engines: Vec::new(),
+        }
+    }
+
+    /// Adds an authorization engine to the chain.
+    pub fn with_engine(
+        mut self,
+        engine: impl AuthorizationEngine + 'static,
+    ) -> Self {
+        self.engines.push(Box::new(engine));
+        self
+    }
+
+    /// Evaluates all engines in-order.
+    pub fn evaluate(
+        &self,
+        context: &AuthorizationContext,
+    ) -> AuthorizationDecision {
+        for engine in &self.engines {
+            let decision = engine.evaluate(context);
+            if decision != AuthorizationDecision::Allow {
+                return decision;
+            }
+        }
+        AuthorizationDecision::Allow
+    }
+}
+
 #[cfg(all(test, feature = "enterprise"))]
 mod tests {
     use super::*;
@@ -392,5 +608,117 @@ mod tests {
     fn jwt_validation_accepts_three_segment_token_without_env() {
         let policy = AuthPolicy::default();
         validate_jwt(&policy, "a.b.c").expect("valid shape token");
+    }
+
+    #[test]
+    fn rbac_adapter_allows_assigned_permission() {
+        let engine = RbacAdapter::default()
+            .grant_role("alice", "admin")
+            .grant_permission("admin", "settings", "write");
+        let ctx = AuthorizationContext {
+            subject: "alice".to_string(),
+            resource: "settings".to_string(),
+            action: "write".to_string(),
+            attributes: HashMap::new(),
+        };
+        assert_eq!(engine.evaluate(&ctx), AuthorizationDecision::Allow);
+    }
+
+    #[test]
+    fn rbac_adapter_denies_missing_permission() {
+        let engine = RbacAdapter::default()
+            .grant_role("alice", "viewer")
+            .grant_permission("viewer", "report", "read");
+        let ctx = AuthorizationContext {
+            subject: "alice".to_string(),
+            resource: "report".to_string(),
+            action: "write".to_string(),
+            attributes: HashMap::new(),
+        };
+        assert!(matches!(
+            engine.evaluate(&ctx),
+            AuthorizationDecision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn abac_adapter_allows_when_attributes_match() {
+        let mut attrs = HashMap::new();
+        let _ = attrs.insert(
+            "tenant".to_string(),
+            ["acme".to_string()].into_iter().collect(),
+        );
+        let engine = AbacAdapter::default().with_rule(AbacRule {
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            required_attributes: attrs,
+        });
+        let ctx = AuthorizationContext {
+            subject: "bob".to_string(),
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            attributes: [("tenant".to_string(), "acme".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        assert_eq!(engine.evaluate(&ctx), AuthorizationDecision::Allow);
+    }
+
+    #[test]
+    fn abac_adapter_denies_on_attribute_mismatch() {
+        let mut attrs = HashMap::new();
+        let _ = attrs.insert(
+            "tenant".to_string(),
+            ["acme".to_string()].into_iter().collect(),
+        );
+        let engine = AbacAdapter::default().with_rule(AbacRule {
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            required_attributes: attrs,
+        });
+        let ctx = AuthorizationContext {
+            subject: "bob".to_string(),
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            attributes: [("tenant".to_string(), "other".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        assert!(matches!(
+            engine.evaluate(&ctx),
+            AuthorizationDecision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn authorization_hook_short_circuits_on_first_deny() {
+        let rbac = RbacAdapter::default()
+            .grant_role("svc", "reader")
+            .grant_permission("reader", "doc", "read");
+        let mut attrs = HashMap::new();
+        let _ = attrs.insert(
+            "env".to_string(),
+            ["prod".to_string()].into_iter().collect(),
+        );
+        let abac = AbacAdapter::default().with_rule(AbacRule {
+            resource: "doc".to_string(),
+            action: "read".to_string(),
+            required_attributes: attrs,
+        });
+        let hook = AuthorizationHook::new()
+            .with_engine(rbac)
+            .with_engine(abac);
+        let denied_ctx = AuthorizationContext {
+            subject: "svc".to_string(),
+            resource: "doc".to_string(),
+            action: "read".to_string(),
+            attributes: [("env".to_string(), "dev".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        assert!(matches!(
+            hook.evaluate(&denied_ctx),
+            AuthorizationDecision::Deny(_)
+        ));
     }
 }

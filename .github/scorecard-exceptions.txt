@@ -1,0 +1,4 @@
+# OSSF Scorecard exception allow-list.
+# Keep this file as small as possible and include temporary exceptions only.
+# Format: one check name per line, e.g.
+# Token-Permissions

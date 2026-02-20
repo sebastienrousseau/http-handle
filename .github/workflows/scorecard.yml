@@ -8,6 +8,15 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+    paths:
+      - ".github/workflows/scorecard.yml"
+      - ".github/scorecard-exceptions.txt"
+      - "docs/SCORECARD_POLICY.md"
+      - ".github/workflows/*.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions: read-all
 
@@ -31,6 +40,31 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+      - name: Enforce Scorecard threshold policy
+        run: |
+          set -euo pipefail
+          exceptions_file=".github/scorecard-exceptions.txt"
+          mapfile -t exceptions < <(grep -v '^\s*#' "$exceptions_file" | sed '/^\s*$/d')
+          mapfile -t failing < <(jq -r '.runs[].results[] | select(.level=="error") | .ruleId' results.sarif | sort -u)
+          violations=()
+          for check in "${failing[@]}"; do
+            allowed=0
+            for ex in "${exceptions[@]}"; do
+              if [ "$check" = "$ex" ]; then
+                allowed=1
+                break
+              fi
+            done
+            if [ "$allowed" -eq 0 ]; then
+              violations+=("$check")
+            fi
+          done
+          echo "Detected failing checks: ${#failing[@]}"
+          if [ "${#violations[@]}" -gt 0 ]; then
+            printf 'Scorecard threshold violations:\n%s\n' "${violations[*]}"
+            exit 1
+          fi
+          echo "Scorecard threshold policy passed."
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
