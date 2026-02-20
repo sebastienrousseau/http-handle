@@ -47,4 +47,13 @@ mod tests {
         .await;
         assert!(matches!(result, Err(ServerError::Custom(_))));
     }
+
+    #[tokio::test]
+    async fn run_blocking_returns_success_value() {
+        let result =
+            run_blocking(|| -> Result<usize, ServerError> { Ok(7) })
+                .await
+                .expect("ok");
+        assert_eq!(result, 7);
+    }
 }

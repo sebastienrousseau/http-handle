@@ -39,6 +39,9 @@ The `http-handle` is a robust Rust library designed for serving static websites.
 - **Pluggable Authorization**: RBAC/ABAC policy adapters with composable authorization hooks.
 - **Portability Matrix**: Cross-platform conformance tests and target-tier support matrix.
 - **Protocol Support Roadmap**: HTTP/2 runtime support plus HTTP/3 ALPN/fallback profile primitives.
+- **Distributed Rate Limiting**: Pluggable Redis/Memcached-style adapters with in-memory fallback backend.
+- **Tenant Isolation**: Tenant-scoped config store and secret-provider abstraction.
+- **Runtime Auto-Tuning**: Host-aware recommendations for high-performance runtime limits.
 
 ## Installation
 
@@ -89,6 +92,9 @@ Protocol support details: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md)
 SLSA/Scorecard policies: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md),
 [`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md).
 Container hardening policy: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md).
+Distributed rate limits: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md).
+Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md).
+Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md).
 
 ## Examples
 
@@ -108,6 +114,7 @@ Key examples by capability:
 - Language and optimization: `feature_language_detection`, `feature_optimized_lookups`
 - Batch and streaming: `feature_batch_processing`, `feature_streaming_chunks`
 - Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`, `feature_http3_profile`
+- Enterprise scaling: `feature_distributed_rate_limit`, `feature_tenant_isolation`, `feature_runtime_autotune`
 - Observability: `feature_observability`
 
 ## Contributing

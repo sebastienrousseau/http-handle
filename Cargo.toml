@@ -172,6 +172,24 @@ path = "examples/feature_http3_profile.rs" # Path to the example file
 required-features = ["http3-profile"]      # Only build when HTTP/3 profile is enabled
 
 [[example]]
+# Example code demonstrating distributed rate limiting adapters.
+name = "feature_distributed_rate_limit"    # Name of the example
+path = "examples/feature_distributed_rate_limit.rs" # Path to the example file
+required-features = ["distributed-rate-limit"] # Only build when distributed rate limiting is enabled
+
+[[example]]
+# Example code demonstrating tenant isolation and secret providers.
+name = "feature_tenant_isolation"          # Name of the example
+path = "examples/feature_tenant_isolation.rs" # Path to the example file
+required-features = ["multi-tenant"]       # Only build when multi-tenant isolation is enabled
+
+[[example]]
+# Example code demonstrating runtime auto-tuning.
+name = "feature_runtime_autotune"          # Name of the example
+path = "examples/feature_runtime_autotune.rs" # Path to the example file
+required-features = ["autotune"]           # Only build when autotune is enabled
+
+[[example]]
 # Example code demonstrating practical server policy configuration.
 name = "scenario_server_policies"          # Name of the example
 path = "examples/scenario_server_policies.rs" # Path to the example file
@@ -211,6 +229,9 @@ auth = []                                   # Auth middleware (API key + JWT par
 config = ["dep:notify", "dep:arc-swap", "dep:toml"] # Runtime profiles + hot reload
 enterprise = ["tls", "auth", "config", "observability"] # Enterprise-ready integrations
 http3-profile = []                          # HTTP/3 production profile and ALPN fallback helpers
+distributed-rate-limit = []                 # Distributed rate-limit backends and adapters
+multi-tenant = []                           # Tenant-isolated config and secret providers
+autotune = ["high-perf"]                    # Runtime auto-tuning for host resource profiles
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration

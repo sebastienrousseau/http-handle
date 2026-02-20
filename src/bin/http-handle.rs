@@ -23,13 +23,24 @@ fn build_server(
     Ok(server)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (address, root) =
-        runtime_settings_with(|name| std::env::var(name).ok());
+fn run_with(
+    getter: impl Fn(&str) -> Option<String>,
+    starter: impl FnOnce(Server) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (address, root) = runtime_settings_with(getter);
     let server = build_server(&address, &root)?;
+    starter(server)
+}
 
-    server.start()?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_with(
+        |name| std::env::var(name).ok(),
+        |server| {
+            server.start().map_err(|e| -> Box<dyn std::error::Error> {
+                Box::new(e)
+            })
+        },
+    )
 }
 
 #[cfg(test)]
@@ -65,5 +76,42 @@ mod tests {
     fn build_server_accepts_valid_settings() {
         let server = build_server("127.0.0.1:0", ".").expect("server");
         assert_eq!(server.address(), "127.0.0.1:0");
+    }
+
+    #[test]
+    fn run_with_invokes_starter() {
+        let ran = std::sync::Arc::new(
+            std::sync::atomic::AtomicBool::new(false),
+        );
+        let flag = ran.clone();
+        run_with(
+            |_| None,
+            move |_server| {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .expect("run");
+        assert!(ran.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn run_with_propagates_starter_error() {
+        let err = run_with(
+            |_| None,
+            |_server| Err("starter failed".to_string().into()),
+        )
+        .expect_err("starter should fail");
+        assert!(err.to_string().contains("starter failed"));
+    }
+
+    #[test]
+    fn main_returns_error_for_invalid_bind_address() {
+        // Safety: bounded test-only process env mutation.
+        unsafe { std::env::set_var("HTTP_HANDLE_ADDR", "not-an-addr") };
+        let result = main();
+        // Safety: paired cleanup for env key set above.
+        unsafe { std::env::remove_var("HTTP_HANDLE_ADDR") };
+        assert!(result.is_err());
     }
 }

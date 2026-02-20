@@ -494,6 +494,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+    use tokio::time::Duration;
 
     #[test]
     fn immutable_asset_detection() {
@@ -522,6 +524,9 @@ mod tests {
         assert!(
             parse_request_from_bytes(b"/ HTTP/1.1\r\n\r\n").is_err()
         );
+        assert!(parse_request_from_bytes(b"\r\n\r\n").is_err());
+        assert!(parse_request_from_bytes(b"GET\r\n\r\n").is_err());
+        assert!(parse_request_from_bytes(b"GET / \r\n\r\n").is_err());
     }
 
     #[test]
@@ -557,6 +562,30 @@ mod tests {
         assert_eq!(
             content_type_for_path(Path::new("a.bin")),
             "application/octet-stream"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.json")),
+            "application/json"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.wasm")),
+            "application/wasm"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.svg")),
+            "image/svg+xml"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.png")),
+            "image/png"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.jpg")),
+            "image/jpeg"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("a.gif")),
+            "image/gif"
         );
     }
 
@@ -614,6 +643,21 @@ mod tests {
         let (p, e) = negotiate_precompressed(&base, &req_br);
         assert!(p.ends_with("index.html.br"));
         assert_eq!(e, Some("br"));
+
+        let mut headers = HashMap::new();
+        let _ = headers
+            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let req_gz_missing = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+        std::fs::remove_file(format!("{}.gz", base.display()))
+            .expect("remove gz");
+        let (p, e) = negotiate_precompressed(&base, &req_gz_missing);
+        assert!(p.ends_with("index.html"));
+        assert_eq!(e, None);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -769,5 +813,362 @@ mod tests {
             .await
             .expect("ok")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_response_async_adds_default_headers() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        let response = Response::new(200, "OK", b"hello".to_vec());
+        send_response_async(&mut server_stream, &response)
+            .await
+            .expect("send");
+        drop(server_stream);
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("HTTP/1.1 200 OK"));
+        assert!(text.contains("Content-Length: 5"));
+        assert!(text.contains("Connection: close"));
+        assert!(text.ends_with("hello"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_response_async_keeps_existing_headers() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        let mut response = Response::new(204, "No Content", Vec::new());
+        response.headers.push(("Content-Length".into(), "0".into()));
+        response
+            .headers
+            .push(("Connection".into(), "keep-alive".into()));
+        send_response_async(&mut server_stream, &response)
+            .await
+            .expect("send");
+        drop(server_stream);
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("Content-Length: 0"));
+        assert!(text.contains("Connection: keep-alive"));
+        assert!(!text.contains("Connection: close"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_rejects_invalid_utf8() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect");
+            stream.write_all(b"\xFF\xFE").await.expect("write");
+            stream
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        let _client = client_task.await.expect("join");
+
+        let err = handle_async_connection(
+            server_stream,
+            &server,
+            &PerfLimits::default(),
+        )
+        .await
+        .expect_err("invalid utf8 should fail");
+        assert!(err.to_string().contains("Invalid request"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_returns_ok_on_clean_close() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            let stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect");
+            drop(stream);
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        client_task.await.expect("join");
+
+        handle_async_connection(
+            server_stream,
+            &server,
+            &PerfLimits::default(),
+        )
+        .await
+        .expect("clean close");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_sends_built_response() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir(root.join("404")).expect("404 dir");
+        std::fs::write(root.join("404/index.html"), "not found")
+            .expect("404");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect");
+            stream
+                .write_all(
+                    b"GET /missing.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                )
+                .await
+                .expect("write");
+            stream
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+        handle_async_connection(
+            server_stream,
+            &server,
+            &PerfLimits::default(),
+        )
+        .await
+        .expect("handled");
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("HTTP/1.1"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fast_path_includes_precompressed_encoding_headers() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("index.html"), "plain").expect("base");
+        std::fs::write(root.join("index.html.gz"), "gzdata")
+            .expect("gz");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let mut headers = HashMap::new();
+        let _ = headers
+            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let req = Request {
+            method: "GET".into(),
+            path: "/index.html".into(),
+            version: "HTTP/1.1".into(),
+            headers,
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        assert!(
+            try_send_static_file_fast_path(
+                &mut server_stream,
+                &server,
+                &req,
+                u64::MAX
+            )
+            .await
+            .expect("served")
+        );
+        drop(server_stream);
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("Content-Encoding: gzip"));
+        assert!(text.contains("Vary: Accept-Encoding"));
+    }
+
+    #[test]
+    fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
+     {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir(root.join("dir-no-index")).expect("mkdir");
+        assert!(resolve_static_path(root, "/dir-no-index").is_none());
+        assert!(!is_probably_immutable_asset("/assets/noext"));
+        assert!(!is_probably_immutable_asset("/assets/file.js"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_send_static_file_fast_path_missing_file_returns_false()
+    {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let request = Request {
+            method: "GET".into(),
+            path: "/missing.txt".into(),
+            version: "HTTP/1.1".into(),
+            headers: HashMap::new(),
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let _client = client_task.await.expect("join");
+
+        let served = try_send_static_file_fast_path(
+            &mut server_stream,
+            &server,
+            &request,
+            u64::MAX,
+        )
+        .await
+        .expect("missing file should map to false");
+        assert!(!served);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_sendfile_unix_sends_file_bytes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("blob.bin");
+        let payload = b"abcdef123456";
+        std::fs::write(&path, payload).expect("write");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        let sent = try_sendfile_unix(
+            &server_stream,
+            &path,
+            payload.len() as u64,
+        )
+        .await
+        .expect("sendfile");
+        assert!(sent);
+        drop(server_stream);
+
+        let mut got = Vec::new();
+        let _ = client.read_to_end(&mut got).await.expect("read");
+        assert_eq!(got, payload);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_high_perf_accepts_and_serves_then_can_abort() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("probe bind");
+        let addr = probe.local_addr().expect("probe addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let limits = PerfLimits {
+            max_inflight: 1,
+            max_queue: 1,
+            sendfile_threshold_bytes: u64::MAX,
+        };
+
+        let task = tokio::spawn(async move {
+            let _ = start_high_perf(server, limits).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect");
+        client
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .await
+            .expect("write");
+        let mut buf = vec![0_u8; 512];
+        let read =
+            timeout(Duration::from_secs(1), client.read(&mut buf))
+                .await
+                .expect("timed read")
+                .expect("read");
+        assert!(read > 0);
+        let text = String::from_utf8_lossy(&buf[..read]);
+        assert!(text.contains("HTTP/1.1 200 OK"));
+
+        task.abort();
+        let join = task.await;
+        assert!(join.is_err());
     }
 }

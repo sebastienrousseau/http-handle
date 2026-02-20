@@ -69,6 +69,21 @@ pub mod perf_server;
 /// HTTP/3 production profile and ALPN fallback helpers.
 pub mod http3_profile;
 
+#[cfg(feature = "distributed-rate-limit")]
+/// Distributed rate-limiting backends and adapters.
+pub mod distributed_rate_limit;
+
+#[cfg(feature = "multi-tenant")]
+/// Multi-tenant config isolation and secret provider integration helpers.
+pub mod tenant_isolation;
+
+#[cfg(feature = "autotune")]
+/// Runtime host-profile auto-tuning helpers.
+pub mod runtime_autotune;
+
+/// Protocol state-machine helpers for fuzzing and conformance testing.
+pub mod protocol_state;
+
 #[cfg(feature = "enterprise")]
 /// Enterprise configuration, auth, and policy helpers.
 pub mod enterprise;

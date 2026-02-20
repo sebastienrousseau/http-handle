@@ -721,4 +721,105 @@ mod tests {
             AuthorizationDecision::Deny(_)
         ));
     }
+
+    #[test]
+    fn mtls_validation_denies_when_allowlist_is_empty() {
+        let policy = AuthPolicy::default();
+        assert!(!validate_mtls_subject(&policy, "CN=any"));
+    }
+
+    #[test]
+    fn rbac_denies_subject_without_roles() {
+        let engine = RbacAdapter::default();
+        let ctx = AuthorizationContext {
+            subject: "nobody".to_string(),
+            resource: "settings".to_string(),
+            action: "read".to_string(),
+            attributes: HashMap::new(),
+        };
+        assert!(matches!(
+            engine.evaluate(&ctx),
+            AuthorizationDecision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn abac_denies_without_matching_rule() {
+        let engine = AbacAdapter::default().with_rule(AbacRule {
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            required_attributes: HashMap::new(),
+        });
+        let ctx = AuthorizationContext {
+            subject: "bob".to_string(),
+            resource: "other".to_string(),
+            action: "read".to_string(),
+            attributes: HashMap::new(),
+        };
+        assert!(matches!(
+            engine.evaluate(&ctx),
+            AuthorizationDecision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn abac_denies_when_required_attribute_missing() {
+        let mut attrs = HashMap::new();
+        let _ = attrs.insert(
+            "tenant".to_string(),
+            ["acme".to_string()].into_iter().collect(),
+        );
+        let engine = AbacAdapter::default().with_rule(AbacRule {
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            required_attributes: attrs,
+        });
+        let ctx = AuthorizationContext {
+            subject: "bob".to_string(),
+            resource: "invoice".to_string(),
+            action: "read".to_string(),
+            attributes: HashMap::new(),
+        };
+        assert!(matches!(
+            engine.evaluate(&ctx),
+            AuthorizationDecision::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn authorization_hook_allows_when_all_engines_allow() {
+        let rbac = RbacAdapter::default()
+            .grant_role("svc", "reader")
+            .grant_permission("reader", "doc", "read");
+        let mut attrs = HashMap::new();
+        let _ = attrs.insert(
+            "env".to_string(),
+            ["prod".to_string()].into_iter().collect(),
+        );
+        let abac = AbacAdapter::default().with_rule(AbacRule {
+            resource: "doc".to_string(),
+            action: "read".to_string(),
+            required_attributes: attrs,
+        });
+        let hook = AuthorizationHook::new()
+            .with_engine(rbac)
+            .with_engine(abac);
+        let ctx = AuthorizationContext {
+            subject: "svc".to_string(),
+            resource: "doc".to_string(),
+            action: "read".to_string(),
+            attributes: [("env".to_string(), "prod".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        assert_eq!(hook.evaluate(&ctx), AuthorizationDecision::Allow);
+    }
+
+    #[test]
+    fn authorization_hook_debug_includes_engine_count() {
+        let hook = AuthorizationHook::new()
+            .with_engine(RbacAdapter::default());
+        let dbg = format!("{hook:?}");
+        assert!(dbg.contains("engines_len"));
+    }
 }
