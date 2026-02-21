@@ -8,6 +8,20 @@ passed=0
 total=0
 failures=()
 
+has_rg() {
+  command -v rg >/dev/null 2>&1
+}
+
+contains_regex() {
+  local pattern="$1"
+  local file="$2"
+  if has_rg; then
+    rg -q --pcre2 "${pattern}" "${file}"
+  else
+    grep -Eq "${pattern}" "${file}"
+  fi
+}
+
 add_check() {
   local description="$1"
   local cmd="$2"
@@ -22,31 +36,31 @@ add_check() {
 }
 
 add_check "README has Architectural Overview" \
-  "rg -q '^## Architectural Overview$' README.md"
+  "contains_regex '^## Architectural Overview$' README.md"
 add_check "README has Feature List" \
-  "rg -q '^## Feature List$' README.md"
+  "contains_regex '^## Feature List$' README.md"
 add_check "README has Quick Start" \
-  "rg -q '^## Quick Start$' README.md"
+  "contains_regex '^## Quick Start$' README.md"
 add_check "README has Platform Support Matrix" \
-  "rg -q '^## Platform Support Matrix$' README.md"
+  "contains_regex '^## Platform Support Matrix$' README.md"
 add_check "lib.rs includes README as crate docs" \
-  "rg -q '#!\\[doc = include_str!\\(\"\\.\\./README\\.md\"\\)\\]' src/lib.rs"
+  "contains_regex '#!\\[doc = include_str!\\(\"\\.\\./README\\.md\"\\)\\]' src/lib.rs"
 add_check "lib.rs has rustdoc branding metadata" \
-  "rg -q 'html_favicon_url|html_logo_url|html_root_url' src/lib.rs"
+  "contains_regex 'html_favicon_url|html_logo_url|html_root_url' src/lib.rs"
 add_check "lib.rs enables docsrs doc_cfg" \
-  "rg -q '#!\\[cfg_attr\\(docsrs, feature\\(doc_cfg\\)\\)\\]' src/lib.rs"
+  "contains_regex '#!\\[cfg_attr\\(docsrs, feature\\(doc_cfg\\)\\)\\]' src/lib.rs"
 add_check "Cargo.toml docs.rs has all-features + cfg docsrs" \
-  "rg -q '^\\[package\\.metadata\\.docs\\.rs\\]' Cargo.toml && rg -q '^all-features = true' Cargo.toml && rg -q '^rustdoc-args = \\[\"--cfg\", \"docsrs\"\\]' Cargo.toml"
+  "contains_regex '^\\[package\\.metadata\\.docs\\.rs\\]' Cargo.toml && contains_regex '^all-features = true' Cargo.toml && contains_regex '^rustdoc-args = \\[\"--cfg\", \"docsrs\"\\]' Cargo.toml"
 add_check "Cargo.toml docs.rs targets include macOS + Linux" \
-  "rg -q 'targets = \\[\"x86_64-apple-darwin\", \"x86_64-unknown-linux-gnu\"\\]' Cargo.toml"
+  "contains_regex 'targets = \\[\"x86_64-apple-darwin\", \"x86_64-unknown-linux-gnu\"\\]' Cargo.toml"
 add_check "Feature-gated modules in lib.rs expose doc(cfg)" \
-  "rg -n '#\\[cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0 && rg -n '#\\[cfg_attr\\(docsrs, doc\\(cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0"
+  "if has_rg; then rg -n '#\\[cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0 && rg -n '#\\[cfg_attr\\(docsrs, doc\\(cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0; else grep -En '#\\[cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0 && grep -En '#\\[cfg_attr\\(docsrs, doc\\(cfg\\(feature = \"' src/lib.rs | wc -l | xargs -I{} test {} -gt 0; fi"
 add_check "README links tutorials guide" \
-  "rg -q 'docs/TUTORIALS\\.md' README.md && test -f docs/TUTORIALS.md"
+  "contains_regex 'docs/TUTORIALS\\.md' README.md && test -f docs/TUTORIALS.md"
 add_check "README links architecture diagrams" \
-  "rg -q 'docs/ARCHITECTURE\\.md' README.md && test -f docs/ARCHITECTURE.md"
+  "contains_regex 'docs/ARCHITECTURE\\.md' README.md && test -f docs/ARCHITECTURE.md"
 add_check "README links benchmark reproducibility guide" \
-  "rg -q 'docs/BENCHMARK_REPRODUCIBILITY\\.md' README.md && test -f docs/BENCHMARK_REPRODUCIBILITY.md"
+  "contains_regex 'docs/BENCHMARK_REPRODUCIBILITY\\.md' README.md && test -f docs/BENCHMARK_REPRODUCIBILITY.md"
 
 score=$((passed * 100 / total))
 printf '\nDocumentation Score: %d/100\n' "${score}"
