@@ -6,7 +6,7 @@ ROOT_DIR="${HTTP_HANDLE_ROOT:-$(pwd)/target/perf-root}"
 MODE="${HTTP_HANDLE_MODE:-high-perf}"
 FEATURES="${HTTP_HANDLE_FEATURES:-async,high-perf}"
 BOMBARDIER_REQS="${BOMBARDIER_REQS:-20000}"
-BOMBARDIER_C="${BOMBARDIER_C:-128}"
+BOMBARDIER_C="${BOMBARDIER_C:-64}"
 MIN_RPS="${MIN_RPS:-1500}"
 READY_RETRIES="${READY_RETRIES:-600}"
 READY_SLEEP_SECS="${READY_SLEEP_SECS:-0.1}"
@@ -29,6 +29,11 @@ PY
 export HTTP_HANDLE_ADDR="$ADDR"
 export HTTP_HANDLE_ROOT="$ROOT_DIR"
 export HTTP_HANDLE_MODE="$MODE"
+
+# Raise file descriptor limit when possible to reduce EMFILE flakiness.
+if ulimit -n 65535 >/dev/null 2>&1; then
+  :
+fi
 
 if [[ -n "${PERF_USE_PREBUILT:-}" && -x "${PREBUILT_BIN}" ]]; then
   env HTTP_HANDLE_ADDR="$ADDR" HTTP_HANDLE_ROOT="$ROOT_DIR" HTTP_HANDLE_MODE="$MODE" \

@@ -3,7 +3,7 @@ description: Install a Rust toolchain and restore/save Cargo cache.
 
 inputs:
   toolchain:
-    description: Rust toolchain (for example: stable, nightly, 1.87.0).
+    description: "Rust toolchain (for example: stable, nightly, 1.87.0)."
     required: false
     default: stable
 
