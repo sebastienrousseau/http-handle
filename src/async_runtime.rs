@@ -1,9 +1,31 @@
-//! Async runtime helpers.
+//! Async runtime helpers for panic-safe blocking execution.
 
 use crate::error::ServerError;
 
 /// Runs a blocking function on Tokio's blocking pool and maps panics/joins to `TaskFailed`.
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::async_runtime::run_blocking;
+/// use http_handle::ServerError;
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() -> Result<(), ServerError> {
+/// let value = run_blocking(|| Ok::<_, ServerError>(42)).await?;
+/// assert_eq!(value, 42);
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// Returns the operation error or `TaskFailed` when the blocking task panics or join fails.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub async fn run_blocking<F, T>(operation: F) -> Result<T, ServerError>
 where
     F: FnOnce() -> Result<T, ServerError> + Send + 'static,
@@ -19,6 +41,23 @@ where
 
 /// Non-async fallback for builds without async feature.
 #[cfg(not(feature = "async"))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::async_runtime::run_blocking;
+/// use http_handle::ServerError;
+/// let value = run_blocking(|| Ok::<_, ServerError>(7)).expect("ok");
+/// assert_eq!(value, 7);
+/// ```
+///
+/// # Errors
+///
+/// Returns the operation error.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn run_blocking<F, T>(operation: F) -> Result<T, ServerError>
 where
     F: FnOnce() -> Result<T, ServerError>,

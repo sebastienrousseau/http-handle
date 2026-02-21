@@ -1,8 +1,19 @@
-//! Language detection primitives with runtime-customizable patterns.
+//! Lightweight language detection with runtime-customizable patterns.
 
 use regex::Regex;
 
 /// Supported languages detected by this module.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::language::Language;
+/// assert_eq!(Language::Rust.as_str(), "rust");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Language {
     /// Rust language.
@@ -19,6 +30,17 @@ pub enum Language {
 
 impl Language {
     /// Returns a static string identifier for the language.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::language::Language;
+    /// assert_eq!(Language::Go.as_str(), "go");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Rust => "rust",
@@ -37,6 +59,18 @@ struct PatternRule {
 }
 
 /// Runtime language detector with optional custom pattern rules.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::language::{Language, LanguageDetector};
+/// let detector = LanguageDetector::new();
+/// assert_eq!(detector.detect("fn main() {}"), Language::Rust);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug)]
 pub struct LanguageDetector {
     rules: Vec<PatternRule>,
@@ -50,6 +84,18 @@ impl Default for LanguageDetector {
 
 impl LanguageDetector {
     /// Creates a detector with built-in default patterns.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::language::{Language, LanguageDetector};
+    /// let detector = LanguageDetector::new();
+    /// assert_eq!(detector.detect("def f(): pass"), Language::Python);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function panics only if a built-in regex literal is invalid.
     pub fn new() -> Self {
         let defaults = [
             (Language::Rust, r"\b(fn|let|impl|pub|crate)\b"),
@@ -74,6 +120,24 @@ impl LanguageDetector {
     }
 
     /// Adds a runtime custom pattern to detect a specific language.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::language::{Language, LanguageDetector};
+    /// let detector = LanguageDetector::new()
+    ///     .with_custom_pattern(Language::Go, r"\\bpackage\\b")
+    ///     .expect("valid regex");
+    /// assert_eq!(detector.detect("package main"), Language::Go);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `pattern` is not a valid regular expression.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn with_custom_pattern(
         mut self,
         language: Language,
@@ -87,6 +151,18 @@ impl LanguageDetector {
     }
 
     /// Detects the first matching language for a text.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::language::{Language, LanguageDetector};
+    /// let detector = LanguageDetector::new();
+    /// assert_eq!(detector.detect("const x = 1;"), Language::JavaScript);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn detect(&self, input: &str) -> Language {
         self.rules
             .iter()

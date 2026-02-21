@@ -38,9 +38,20 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
+if ! nc -z "${ADDR%:*}" "${ADDR##*:}" >/dev/null 2>&1; then
+  echo "Benchmark target did not become ready at ${ADDR}"
+  echo "Server log:"
+  tail -n 200 /tmp/http_handle_bench.log || true
+  exit 1
+fi
+
 if command -v bombardier >/dev/null 2>&1; then
   OUT=$(bombardier -c "$BOMBARDIER_C" -n "$BOMBARDIER_REQS" "http://$ADDR/")
   echo "$OUT"
+  if echo "$OUT" | grep -Eq "connection refused|Errors:.*dial tcp"; then
+    echo "Benchmark failed due to connection errors"
+    exit 1
+  fi
   RPS=$(echo "$OUT" | awk '/Reqs\/sec/ {print int($2)} END {if (NR==0) print ""}')
   if [[ -z "${RPS:-}" ]]; then
     RPS=$(echo "$OUT" | awk '/Throughput:/ {print int($2)}' | head -n1)

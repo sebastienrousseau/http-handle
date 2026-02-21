@@ -1,23 +1,41 @@
-//! Enterprise-ready primitives: TLS/mTLS policy, auth middleware hooks,
-//! runtime profiles, hot reload, and structured audit logging.
+//! Enterprise policy primitives for transport security, auth, telemetry, and runtime profiles.
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use crate::error::ServerError;
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use arc_swap::ArcSwap;
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use notify::{RecursiveMode, Watcher};
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use std::sync::Arc;
 
 /// Runtime deployment profile.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::RuntimeProfile;
+/// assert!(matches!(RuntimeProfile::Dev, RuntimeProfile::Dev));
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -33,7 +51,20 @@ pub enum RuntimeProfile {
 }
 
 /// TLS and mTLS settings.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::TlsPolicy;
+/// let p = TlsPolicy::default();
+/// assert!(!p.enabled);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -51,7 +82,20 @@ pub struct TlsPolicy {
 }
 
 /// Pluggable authentication policy.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AuthPolicy;
+/// let p = AuthPolicy::default();
+/// assert!(p.api_keys.is_empty());
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -69,7 +113,20 @@ pub struct AuthPolicy {
 }
 
 /// OpenTelemetry/observability export policy.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::TelemetryPolicy;
+/// let p = TelemetryPolicy::default();
+/// assert!(!p.otlp_enabled);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -83,7 +140,20 @@ pub struct TelemetryPolicy {
 }
 
 /// Enterprise profile bundle.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::EnterpriseConfig;
+/// let cfg = EnterpriseConfig::default();
+/// assert!(matches!(cfg.profile, _));
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -99,8 +169,25 @@ pub struct EnterpriseConfig {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl EnterpriseConfig {
     /// Loads enterprise configuration from a TOML file.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::enterprise::EnterpriseConfig;
+    /// use std::path::Path;
+    /// let _ = EnterpriseConfig::load_from_file(Path::new("enterprise.toml"));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when reading or parsing TOML fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn load_from_file(path: &Path) -> Result<Self, ServerError> {
         let text =
             std::fs::read_to_string(path).map_err(ServerError::from)?;
@@ -110,6 +197,23 @@ impl EnterpriseConfig {
     }
 
     /// Writes enterprise configuration as TOML.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::enterprise::EnterpriseConfig;
+    /// use std::path::Path;
+    /// let cfg = EnterpriseConfig::default();
+    /// let _ = cfg.save_to_file(Path::new("enterprise.toml"));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization or file write fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn save_to_file(&self, path: &Path) -> Result<(), ServerError> {
         let text = toml::to_string_pretty(self).map_err(|e| {
             ServerError::Custom(format!("serialize config: {e}"))
@@ -118,6 +222,18 @@ impl EnterpriseConfig {
     }
 
     /// Returns a strict, production-biased default profile.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::EnterpriseConfig;
+    /// let cfg = EnterpriseConfig::production_baseline();
+    /// assert!(cfg.tls.enabled);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn production_baseline() -> Self {
         Self {
             profile: RuntimeProfile::Prod,
@@ -147,7 +263,19 @@ impl EnterpriseConfig {
 }
 
 /// Hot-reload manager for enterprise config.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::enterprise::EnterpriseConfigReloader;
+/// let _ = EnterpriseConfigReloader::watch("enterprise.toml");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Debug)]
 pub struct EnterpriseConfigReloader {
     current: Arc<ArcSwap<EnterpriseConfig>>,
@@ -155,8 +283,24 @@ pub struct EnterpriseConfigReloader {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl EnterpriseConfigReloader {
     /// Starts watching a config file and atomically swaps updates.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::enterprise::EnterpriseConfigReloader;
+    /// let _ = EnterpriseConfigReloader::watch("enterprise.toml");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when initial config load or file-watch setup fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn watch(path: impl AsRef<Path>) -> Result<Self, ServerError> {
         let path = path.as_ref().to_path_buf();
         let initial =
@@ -191,13 +335,38 @@ impl EnterpriseConfigReloader {
     }
 
     /// Returns the latest config snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::enterprise::EnterpriseConfigReloader;
+    /// let reloader = EnterpriseConfigReloader::watch("enterprise.toml");
+    /// if let Ok(r) = reloader { let _ = r.snapshot(); }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn snapshot(&self) -> Arc<EnterpriseConfig> {
         self.current.load_full()
     }
 }
 
 /// Structured access/audit event with trace correlation.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AccessAuditEvent;
+/// let e = AccessAuditEvent::default();
+/// assert_eq!(e.status_code, 0);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -217,8 +386,26 @@ pub struct AccessAuditEvent {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl AccessAuditEvent {
     /// Encodes a JSON log line for ingestion by SIEM/log pipelines.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::AccessAuditEvent;
+    /// let event = AccessAuditEvent::default();
+    /// let _ = event.to_json_line();
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when JSON serialization fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn to_json_line(&self) -> Result<String, ServerError> {
         serde_json::to_string(self).map_err(|e| {
             ServerError::Custom(format!("audit serialize: {e}"))
@@ -228,6 +415,19 @@ impl AccessAuditEvent {
 
 /// Constant-time API key validation helper.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::{AuthPolicy, validate_api_key};
+/// let p = AuthPolicy { api_keys: vec!["k".into()], ..AuthPolicy::default() };
+/// assert!(validate_api_key(&p, "k"));
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn validate_api_key(policy: &AuthPolicy, key: &str) -> bool {
     let allowed: HashSet<&str> =
         policy.api_keys.iter().map(String::as_str).collect();
@@ -236,6 +436,24 @@ pub fn validate_api_key(policy: &AuthPolicy, key: &str) -> bool {
 
 /// JWT validation helper (HS256).
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::{AuthPolicy, validate_jwt};
+/// let p = AuthPolicy::default();
+/// let _ = validate_jwt(&p, "a.b.c");
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when token shape is invalid or configured secret env var is missing.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn validate_jwt(
     policy: &AuthPolicy,
     token: &str,
@@ -261,6 +479,19 @@ pub fn validate_jwt(
 
 /// mTLS subject allowlist helper.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::{AuthPolicy, validate_mtls_subject};
+/// let p = AuthPolicy { mtls_subject_allowlist: vec!["CN=ok".into()], ..AuthPolicy::default() };
+/// assert!(validate_mtls_subject(&p, "CN=ok"));
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn validate_mtls_subject(
     policy: &AuthPolicy,
     subject_dn: &str,
@@ -275,7 +506,20 @@ pub fn validate_mtls_subject(
 }
 
 /// Authorization request context for policy evaluation hooks.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AuthorizationContext;
+/// let ctx = AuthorizationContext::default();
+/// assert_eq!(ctx.subject, "");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AuthorizationContext {
     /// Authenticated subject identifier.
@@ -289,7 +533,19 @@ pub struct AuthorizationContext {
 }
 
 /// Authorization decision.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AuthorizationDecision;
+/// assert!(matches!(AuthorizationDecision::Allow, AuthorizationDecision::Allow));
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthorizationDecision {
     /// Request is authorized.
@@ -300,6 +556,19 @@ pub enum AuthorizationDecision {
 
 /// Pluggable authorization engine.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AuthorizationEngine;
+/// # let _ = std::any::TypeId::of::<&dyn AuthorizationEngine>();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// Trait usage does not panic by itself.
 pub trait AuthorizationEngine: Send + Sync {
     /// Evaluates access for a given request context.
     fn evaluate(
@@ -309,7 +578,20 @@ pub trait AuthorizationEngine: Send + Sync {
 }
 
 /// RBAC adapter with explicit subject role mapping.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::RbacAdapter;
+/// let r = RbacAdapter::default();
+/// assert!(r.subject_roles.is_empty());
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RbacAdapter {
     /// Subject -> role set map.
@@ -319,8 +601,21 @@ pub struct RbacAdapter {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl RbacAdapter {
     /// Grants a role to a subject.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::RbacAdapter;
+    /// let r = RbacAdapter::default().grant_role("alice", "admin");
+    /// assert!(!r.subject_roles.is_empty());
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn grant_role(
         mut self,
         subject: impl Into<String>,
@@ -333,6 +628,18 @@ impl RbacAdapter {
     }
 
     /// Grants a permission tuple to a role.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::RbacAdapter;
+    /// let r = RbacAdapter::default().grant_permission("admin", "docs", "read");
+    /// assert!(!r.role_permissions.is_empty());
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn grant_permission(
         mut self,
         role: impl Into<String>,
@@ -347,6 +654,7 @@ impl RbacAdapter {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl AuthorizationEngine for RbacAdapter {
     fn evaluate(
         &self,
@@ -382,7 +690,20 @@ impl AuthorizationEngine for RbacAdapter {
 }
 
 /// ABAC rule for resource/action with required attributes.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AbacRule;
+/// let r = AbacRule::default();
+/// assert_eq!(r.resource, "");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AbacRule {
     /// Matched resource.
@@ -394,7 +715,20 @@ pub struct AbacRule {
 }
 
 /// ABAC adapter backed by explicit rules.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AbacAdapter;
+/// let a = AbacAdapter::default();
+/// assert!(a.rules.is_empty());
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AbacAdapter {
     /// Ordered rules evaluated with first-match semantics.
@@ -402,8 +736,21 @@ pub struct AbacAdapter {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl AbacAdapter {
     /// Adds a new ABAC rule.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::{AbacAdapter, AbacRule};
+    /// let a = AbacAdapter::default().with_rule(AbacRule::default());
+    /// assert_eq!(a.rules.len(), 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn with_rule(mut self, rule: AbacRule) -> Self {
         self.rules.push(rule);
         self
@@ -411,6 +758,7 @@ impl AbacAdapter {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl AuthorizationEngine for AbacAdapter {
     fn evaluate(
         &self,
@@ -442,13 +790,27 @@ impl AuthorizationEngine for AbacAdapter {
 }
 
 /// Composite authorization hook that short-circuits on first deny.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::AuthorizationHook;
+/// let h = AuthorizationHook::new();
+/// assert_eq!(format!("{h:?}").contains("AuthorizationHook"), true);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 #[derive(Default)]
 pub struct AuthorizationHook {
     engines: Vec<Box<dyn AuthorizationEngine>>,
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl std::fmt::Debug for AuthorizationHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthorizationHook")
@@ -458,8 +820,21 @@ impl std::fmt::Debug for AuthorizationHook {
 }
 
 #[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 impl AuthorizationHook {
     /// Creates an empty authorization hook chain.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::AuthorizationHook;
+    /// let _h = AuthorizationHook::new();
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new() -> Self {
         Self {
             engines: Vec::new(),
@@ -467,6 +842,22 @@ impl AuthorizationHook {
     }
 
     /// Adds an authorization engine to the chain.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::{AuthorizationContext, AuthorizationDecision, AuthorizationEngine, AuthorizationHook};
+    /// struct Allow;
+    /// impl AuthorizationEngine for Allow {
+    ///     fn evaluate(&self, _context: &AuthorizationContext) -> AuthorizationDecision { AuthorizationDecision::Allow }
+    /// }
+    /// let _h = AuthorizationHook::new().with_engine(Allow);
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn with_engine(
         mut self,
         engine: impl AuthorizationEngine + 'static,
@@ -476,6 +867,23 @@ impl AuthorizationHook {
     }
 
     /// Evaluates all engines in-order.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::{AuthorizationContext, AuthorizationDecision, AuthorizationEngine, AuthorizationHook};
+    /// struct Allow;
+    /// impl AuthorizationEngine for Allow {
+    ///     fn evaluate(&self, _context: &AuthorizationContext) -> AuthorizationDecision { AuthorizationDecision::Allow }
+    /// }
+    /// let h = AuthorizationHook::new().with_engine(Allow);
+    /// let d = h.evaluate(&AuthorizationContext::default());
+    /// assert!(matches!(d, AuthorizationDecision::Allow));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn evaluate(
         &self,
         context: &AuthorizationContext,

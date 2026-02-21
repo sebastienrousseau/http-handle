@@ -1,4 +1,4 @@
-//! Batch processing utilities for concurrent file operations.
+//! Batch processing utilities for concurrent file reads.
 
 use crate::error::ServerError;
 use std::fs;
@@ -7,6 +7,19 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 /// Batch operation request.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::batch::BatchRequest;
+/// use std::path::PathBuf;
+/// let req = BatchRequest { relative_path: PathBuf::from("index.html") };
+/// assert_eq!(req.relative_path, PathBuf::from("index.html"));
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug)]
 pub struct BatchRequest {
     /// Relative path to read.
@@ -14,6 +27,21 @@ pub struct BatchRequest {
 }
 
 /// Batch operation result.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::batch::BatchResult;
+/// use http_handle::ServerError;
+/// use std::path::PathBuf;
+/// let result = BatchResult { relative_path: PathBuf::from("a.txt"), body: Ok(Vec::new()) };
+/// assert!(result.body.is_ok());
+/// let _unused: Result<Vec<u8>, ServerError> = Ok(Vec::new());
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug)]
 pub struct BatchResult {
     /// Requested relative path.
@@ -23,6 +51,24 @@ pub struct BatchResult {
 }
 
 /// Concurrently reads multiple files under a shared root.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::batch::{BatchRequest, process_batch};
+/// use std::path::{Path, PathBuf};
+/// let requests = vec![BatchRequest { relative_path: PathBuf::from("index.html") }];
+/// let _results = process_batch(Path::new("."), &requests, 2);
+/// ```
+///
+/// # Errors
+///
+/// This function does not return a `Result`. Per-file errors are captured in each
+/// [`BatchResult::body`] entry.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn process_batch(
     document_root: &Path,
     requests: &[BatchRequest],

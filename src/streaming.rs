@@ -1,4 +1,4 @@
-//! Streaming utilities for chunked processing of large files.
+//! Pull-based chunked streaming utilities for large files.
 
 use crate::error::ServerError;
 use std::fs::File;
@@ -6,6 +6,18 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 /// A pull-based chunk stream for file content.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::streaming::ChunkStream;
+/// use std::path::Path;
+/// let _stream = ChunkStream::from_file(Path::new("README.md"), 1024);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug)]
 pub struct ChunkStream {
     reader: BufReader<File>,
@@ -15,6 +27,23 @@ pub struct ChunkStream {
 
 impl ChunkStream {
     /// Opens a file and returns a chunk stream.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::streaming::ChunkStream;
+    /// use std::path::Path;
+    /// let stream = ChunkStream::from_file(Path::new("README.md"), 512);
+    /// assert!(stream.is_ok());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the target file cannot be opened.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn from_file(
         path: &Path,
         chunk_size: usize,

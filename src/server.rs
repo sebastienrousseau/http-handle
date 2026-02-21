@@ -1,30 +1,11 @@
 // src/server.rs
 
-//! Server module for handling HTTP requests and responses.
+//! Core HTTP server runtime.
 //!
-//! This module defines the core functionality for a simple HTTP server. It includes
-//! the `Server` struct, which represents the configuration of the server and manages
-//! incoming client connections. The server can serve static files from a document root
-//! and handle basic HTTP requests.
+//! Use this module when you need a static-first HTTP server with predictable request parsing,
+//! policy-aware response generation, and portable runtime behavior across macOS, Linux, and WSL.
 //!
-//! The primary components of this module are:
-//!
-//! - `Server`: Represents the HTTP server and its configuration (address and document root).
-//! - `handle_connection`: Manages a single client connection, processing HTTP requests and sending responses.
-//! - `generate_response`: Generates an appropriate HTTP response based on the requested file or directory.
-//! - `get_content_type`: Determines the content type of files based on their extension.
-//!
-//! This module also includes error handling using `ServerError`, which covers
-//! I/O errors, invalid requests, file not found errors, and forbidden access.
-//!
-//! # Features
-//!
-//! - Handles HTTP GET requests and serves static files.
-//! - Supports serving an `index.html` for directories.
-//! - Returns a `404 Not Found` response for missing files.
-//! - Provides security against directory traversal attacks by restricting access
-//!   to the document root.
-//! - Serves appropriate content types based on file extensions (e.g., `.html`, `.css`, `.js`).
+//! The primary entrypoints are [`Server`] and [`ServerBuilder`].
 //!
 
 use crate::error::ServerError;
@@ -54,7 +35,29 @@ static METRIC_RESPONSES_4XX: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_5XX: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RATE_LIMITED: AtomicUsize = AtomicUsize::new(0);
 
-/// Represents the Http Handle and its configuration.
+/// Serves static HTTP content with configurable runtime policies.
+///
+/// You use `Server` as the main entrypoint to bind an address, map requests to files
+/// under a document root, and apply response policies such as CORS, cache hints, and
+/// simple rate limiting.
+///
+/// For most production setups, prefer [`Server::builder`] so optional settings are
+/// explicit and readable.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::Server;
+///
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// assert_eq!(server.address(), "127.0.0.1:8080");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic on construction.
+#[doc(alias = "http server")]
+#[doc(alias = "static file server")]
 #[derive(
     Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize,
 )]
@@ -70,7 +73,35 @@ pub struct Server {
     static_cache_ttl_secs: Option<u64>,
 }
 
-/// Builder for configuring Server instances with optional features
+/// Builds a [`Server`] with optional policy and timeout configuration.
+///
+/// You use `ServerBuilder` when you want a fluent, explicit configuration surface for
+/// CORS, custom headers, timeouts, and rate limiting.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::Server;
+///
+/// let server = Server::builder()
+///     .address("127.0.0.1:8080")
+///     .document_root(".")
+///     .enable_cors()
+///     .build()
+///     .expect("valid builder config");
+///
+/// assert_eq!(server.address(), "127.0.0.1:8080");
+/// ```
+///
+/// # Errors
+///
+/// Builder finalization fails when required fields are missing.
+///
+/// # Panics
+///
+/// This type does not panic under normal usage.
+#[doc(alias = "builder")]
+#[doc(alias = "configuration")]
 #[derive(Clone, Debug, Default)]
 pub struct ServerBuilder {
     address: Option<String>,
@@ -85,18 +116,69 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
-    /// Creates a new ServerBuilder
+    /// Creates a new builder with no required fields set.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::server::ServerBuilder;
+    ///
+    /// let builder = ServerBuilder::new();
+    /// let _ = builder;
+    /// assert_eq!(2 + 2, 4);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "new builder")]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Sets the server address
+    /// Sets the bind address (`ip:port`) for the server.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::builder()
+    ///     .address("127.0.0.1:8080")
+    ///     .document_root(".")
+    ///     .build()
+    ///     .expect("builder should succeed");
+    /// assert_eq!(server.address(), "127.0.0.1:8080");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "bind address")]
     pub fn address(mut self, address: &str) -> Self {
         self.address = Some(address.to_string());
         self
     }
 
-    /// Sets the document root directory
+    /// Sets the document root directory used for file resolution.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::builder()
+    ///     .address("127.0.0.1:8080")
+    ///     .document_root(".")
+    ///     .build()
+    ///     .expect("builder should succeed");
+    /// assert_eq!(server.document_root().as_path(), std::path::Path::new("."));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "document root")]
     pub fn document_root(mut self, path: &str) -> Self {
         self.document_root = Some(PathBuf::from(path));
         self
@@ -162,7 +244,30 @@ impl ServerBuilder {
         self
     }
 
-    /// Builds the Server instance
+    /// Finalizes builder state into a [`Server`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let ok = Server::builder()
+    ///     .address("127.0.0.1:8080")
+    ///     .document_root(".")
+    ///     .build();
+    /// assert!(ok.is_ok());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when:
+    /// - the address was not provided.
+    /// - the document root was not provided.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "finalize")]
     pub fn build(self) -> Result<Server, &'static str> {
         let address = self.address.ok_or("Address is required")?;
         let document_root =
@@ -441,16 +546,24 @@ impl Drop for ConnectionGuard {
 }
 
 impl Server {
-    /// Creates a new `Server` instance.
+    /// Creates a server using the minimal required configuration.
     ///
-    /// # Arguments
+    /// Use this constructor when you want a quick default path. For advanced runtime
+    /// policy, prefer [`Server::builder`].
     ///
-    /// * `address` - A string slice that holds the IP address and port (e.g., "127.0.0.1:8080").
-    /// * `document_root` - A string slice that holds the path to the document root directory.
+    /// # Examples
     ///
-    /// # Returns
+    /// ```rust
+    /// use http_handle::Server;
     ///
-    /// A new `Server` instance.
+    /// let server = Server::new("127.0.0.1:8080", ".");
+    /// assert_eq!(server.address(), "127.0.0.1:8080");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "constructor")]
     pub fn new(address: &str, document_root: &str) -> Self {
         Server {
             address: address.to_string(),
@@ -465,16 +578,51 @@ impl Server {
         }
     }
 
-    /// Creates a new ServerBuilder for configuring optional features
+    /// Returns a fluent builder for optional server policies.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::builder()
+    ///     .address("127.0.0.1:8080")
+    ///     .document_root(".")
+    ///     .build()
+    ///     .expect("builder should succeed");
+    /// assert_eq!(server.address(), "127.0.0.1:8080");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn builder() -> ServerBuilder {
         ServerBuilder::new()
     }
 
-    /// Starts the server and begins listening for incoming connections.
+    /// Starts a blocking HTTP/1.1 listener loop.
     ///
-    /// # Returns
+    /// On Linux, macOS, and Windows, this binds a `TcpListener` and accepts connections
+    /// in a thread-per-connection model.
     ///
-    /// A `Result` indicating success or an I/O error.
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::new("127.0.0.1:8080", ".");
+    /// let _ = server.start();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if binding fails or the listener cannot be configured.
+    ///
+    /// # Panics
+    ///
+    /// This function does not intentionally panic.
+    #[doc(alias = "listen")]
+    #[doc(alias = "serve")]
     pub fn start(&self) -> io::Result<()> {
         let listener = TcpListener::bind(&self.address)?;
         println!("❯ Server is now running at http://{}", self.address);
@@ -486,18 +634,29 @@ impl Server {
         Ok(())
     }
 
-    /// Starts the server with graceful shutdown capabilities.
+    /// Starts the server with OS-signal-aware graceful shutdown.
     ///
-    /// This method sets up signal handlers for SIGINT and SIGTERM, tracks active
-    /// connections, and gracefully shuts down when requested.
+    /// On macOS/Linux, this responds to `SIGINT`/`SIGTERM` via the installed signal handler.
+    /// On Windows, `Ctrl+C` triggers equivalent shutdown behavior through the same handler API.
     ///
-    /// # Arguments
+    /// # Examples
     ///
-    /// * `shutdown_timeout` - Maximum time to wait for connections to drain during shutdown
+    /// ```rust,no_run
+    /// use http_handle::Server;
+    /// use std::time::Duration;
     ///
-    /// # Returns
+    /// let server = Server::new("127.0.0.1:8080", ".");
+    /// let _ = server.start_with_graceful_shutdown(Duration::from_secs(5));
+    /// ```
     ///
-    /// A `Result` indicating success or an I/O error.
+    /// # Errors
+    ///
+    /// Returns `Err` when binding or socket configuration fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not intentionally panic.
+    #[doc(alias = "graceful shutdown")]
     pub fn start_with_graceful_shutdown(
         &self,
         shutdown_timeout: Duration,
@@ -506,18 +665,28 @@ impl Server {
         self.start_with_shutdown_signal(shutdown)
     }
 
-    /// Starts the server with a provided shutdown signal.
+    /// Starts the server with caller-managed shutdown coordination.
     ///
-    /// This method allows for custom shutdown coordination and is used internally
-    /// by other startup methods.
+    /// # Examples
     ///
-    /// # Arguments
+    /// ```rust,no_run
+    /// use http_handle::{Server, ShutdownSignal};
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
     ///
-    /// * `shutdown` - The shutdown signal to coordinate graceful termination
+    /// let server = Server::new("127.0.0.1:8080", ".");
+    /// let signal = Arc::new(ShutdownSignal::new(Duration::from_secs(2)));
+    /// let _ = server.start_with_shutdown_signal(signal);
+    /// ```
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// A `Result` indicating success or an I/O error.
+    /// Returns `Err` when binding or listener configuration fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not intentionally panic.
+    #[doc(alias = "shutdown signal")]
     pub fn start_with_shutdown_signal(
         &self,
         shutdown: Arc<ShutdownSignal>,

@@ -1,13 +1,8 @@
 // src/error.rs
 
-//! Error types for the Http Handle.
+//! Error model for runtime, parsing, and policy operations.
 //!
-//! This module defines the various error types that can occur during the operation
-//! of the Http Handle. It provides a centralized place for error handling and
-//! propagation throughout the application.
-//!
-//! The main type exposed by this module is the `ServerError` enum, which
-//! encompasses all possible error conditions the server might encounter.
+//! Use [`ServerError`] as the shared error boundary across sync and async server paths.
 
 use std::io;
 use thiserror::Error;

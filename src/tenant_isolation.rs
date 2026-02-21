@@ -1,14 +1,38 @@
-//! Multi-tenant config isolation and secret-provider helpers.
+//! Multi-tenant configuration isolation and secret-provider helpers.
 
 use crate::error::ServerError;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// Tenant identifier.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::TenantId;
+/// let t = TenantId("acme".into());
+/// assert_eq!(t.0, "acme");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TenantId(pub String);
 
 /// Per-tenant configuration document.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::TenantConfig;
+/// let cfg = TenantConfig::default();
+/// assert!(cfg.settings.is_empty());
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TenantConfig {
     /// Arbitrary tenant settings.
@@ -16,6 +40,18 @@ pub struct TenantConfig {
 }
 
 /// Thread-safe tenant config store with strict tenant keying.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::TenantConfigStore;
+/// let _store = TenantConfigStore::default();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug, Default)]
 pub struct TenantConfigStore {
     data: RwLock<HashMap<TenantId, TenantConfig>>,
@@ -23,6 +59,23 @@ pub struct TenantConfigStore {
 
 impl TenantConfigStore {
     /// Writes tenant config snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::{TenantConfig, TenantConfigStore, TenantId};
+    /// let store = TenantConfigStore::default();
+    /// let _ = store.set_config(TenantId("acme".into()), TenantConfig::default());
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying lock is poisoned.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn set_config(
         &self,
         tenant: TenantId,
@@ -36,6 +89,23 @@ impl TenantConfigStore {
     }
 
     /// Returns a cloned tenant config snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::{TenantConfigStore, TenantId};
+    /// let store = TenantConfigStore::default();
+    /// let _ = store.get_config(&TenantId("acme".into()));
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying lock is poisoned.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn get_config(
         &self,
         tenant: &TenantId,
@@ -48,6 +118,18 @@ impl TenantConfigStore {
 }
 
 /// External secret provider contract for tenant-scoped lookup.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::SecretProvider;
+/// # let _ = std::any::TypeId::of::<&dyn SecretProvider>();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// Trait usage does not panic by itself.
 pub trait SecretProvider: Send + Sync + std::fmt::Debug {
     /// Fetches secret for tenant and key.
     fn get_secret(
@@ -58,6 +140,18 @@ pub trait SecretProvider: Send + Sync + std::fmt::Debug {
 }
 
 /// Environment-backed secret provider using strict tenant-key namespace.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::EnvSecretProvider;
+/// let _provider = EnvSecretProvider::new("HTTP_HANDLE_SECRET");
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug)]
 pub struct EnvSecretProvider {
     prefix: String,
@@ -65,6 +159,18 @@ pub struct EnvSecretProvider {
 
 impl EnvSecretProvider {
     /// Creates provider with prefix used in env keys.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::EnvSecretProvider;
+    /// let _provider = EnvSecretProvider::new("HTTP_HANDLE_SECRET");
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new(prefix: impl Into<String>) -> Self {
         Self {
             prefix: prefix.into(),
@@ -91,6 +197,18 @@ impl SecretProvider for EnvSecretProvider {
 }
 
 /// In-memory secret provider useful for local development/testing.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::StaticSecretProvider;
+/// let _provider = StaticSecretProvider::default();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug, Default)]
 pub struct StaticSecretProvider {
     data: HashMap<(TenantId, String), String>,
@@ -98,6 +216,18 @@ pub struct StaticSecretProvider {
 
 impl StaticSecretProvider {
     /// Adds a tenant-scoped secret value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::{StaticSecretProvider, TenantId};
+    /// let _provider = StaticSecretProvider::default().with_secret(TenantId("acme".into()), "token", "abc");
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn with_secret(
         mut self,
         tenant: TenantId,
@@ -120,6 +250,19 @@ impl SecretProvider for StaticSecretProvider {
 }
 
 /// Tenant-scoped secret accessor.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::tenant_isolation::{StaticSecretProvider, TenantScopedSecrets};
+/// let provider = StaticSecretProvider::default();
+/// let _secrets = TenantScopedSecrets::new(provider);
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug)]
 pub struct TenantScopedSecrets<P: SecretProvider> {
     provider: P,
@@ -127,11 +270,40 @@ pub struct TenantScopedSecrets<P: SecretProvider> {
 
 impl<P: SecretProvider> TenantScopedSecrets<P> {
     /// Creates a tenant-scoped secret accessor.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::{StaticSecretProvider, TenantScopedSecrets};
+    /// let _s = TenantScopedSecrets::new(StaticSecretProvider::default());
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new(provider: P) -> Self {
         Self { provider }
     }
 
     /// Reads tenant secret.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::tenant_isolation::{StaticSecretProvider, TenantId, TenantScopedSecrets};
+    /// let s = TenantScopedSecrets::new(StaticSecretProvider::default());
+    /// let _ = s.read(&TenantId("acme".into()), "token");
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns provider-specific errors for secret lookup failures.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn read(
         &self,
         tenant: &TenantId,

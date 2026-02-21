@@ -1,6 +1,17 @@
-//! Protocol state-machine helpers used for fuzzing and conformance tests.
+//! Protocol byte-classification helpers for fuzzing and conformance tests.
 
 /// Classification outcome for input protocol bytes.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::protocol_state::ProtocolClassification;
+/// assert_eq!(ProtocolClassification::Unknown as u8, ProtocolClassification::Unknown as u8);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProtocolClassification {
     /// Input looks like HTTP/2 client preface.
@@ -14,6 +25,18 @@ pub enum ProtocolClassification {
 const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// Classifies protocol bytes without panicking.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::protocol_state::{classify_protocol_bytes, ProtocolClassification};
+/// let c = classify_protocol_bytes(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+/// assert_eq!(c, ProtocolClassification::Http2Preface);
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn classify_protocol_bytes(input: &[u8]) -> ProtocolClassification {
     if input.is_empty() {
         return ProtocolClassification::Unknown;

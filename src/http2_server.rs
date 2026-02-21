@@ -1,13 +1,16 @@
 //! HTTP/2 server entrypoints (feature-gated).
 //!
 //! This module provides a clear-text HTTP/2 (h2c) accept loop that reuses
-//! the existing request/response logic from the main server module.
+//! the request/response behavior from the primary server pipeline.
 
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 use crate::error::ServerError;
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 use crate::request::Request;
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 use crate::server::{Server, build_response_for_request_with_metrics};
 
 /// Starts an HTTP/2 (h2c) accept loop backed by Tokio.
@@ -16,6 +19,27 @@ use crate::server::{Server, build_response_for_request_with_metrics};
 /// each stream is handled using the same request->response logic used by
 /// the HTTP/1 server.
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::http2_server::start_http2;
+/// use http_handle::Server;
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() {
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// let _ = start_http2(server).await;
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when binding or accepting HTTP/2 connections fails.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub async fn start_http2(server: Server) -> Result<(), ServerError> {
     let listener = tokio::net::TcpListener::bind(server.address())
         .await
@@ -36,6 +60,7 @@ pub async fn start_http2(server: Server) -> Result<(), ServerError> {
 }
 
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 async fn handle_h2_connection(
     stream: tokio::net::TcpStream,
     server: Server,
@@ -61,6 +86,7 @@ async fn handle_h2_connection(
 }
 
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 fn map_h2_request<B>(request: &http::Request<B>) -> Request {
     let headers = request
         .headers()
@@ -86,6 +112,7 @@ fn map_h2_request<B>(request: &http::Request<B>) -> Request {
 }
 
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 fn send_h2_response(
     mut respond: h2::server::SendResponse<bytes::Bytes>,
     response: crate::response::Response,
@@ -115,6 +142,7 @@ fn send_h2_response(
 }
 
 #[cfg(feature = "http2")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
 fn build_h2_head(
     response: &crate::response::Response,
 ) -> Result<http::Response<()>, ServerError> {

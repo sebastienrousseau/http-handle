@@ -1,8 +1,20 @@
-//! Runtime auto-tuning helpers based on host resource profile.
+//! Runtime auto-tuning helpers based on detected host resource profile.
 
 use std::num::NonZeroUsize;
 
 /// Host resource profile used for tuning decisions.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::runtime_autotune::HostResourceProfile;
+/// let p = HostResourceProfile { cpu_cores: 4, memory_mib: 4096 };
+/// assert_eq!(p.cpu_cores, 4);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HostResourceProfile {
     /// Detected logical cores.
@@ -12,6 +24,18 @@ pub struct HostResourceProfile {
 }
 
 /// Tuning recommendation independent of server runtime type.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::runtime_autotune::RuntimeTuneRecommendation;
+/// let rec = RuntimeTuneRecommendation { max_inflight: 128, max_queue: 512, sendfile_threshold_bytes: 65536 };
+/// assert_eq!(rec.max_queue, 512);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuntimeTuneRecommendation {
     /// Max concurrent inflight requests.
@@ -24,6 +48,18 @@ pub struct RuntimeTuneRecommendation {
 
 impl RuntimeTuneRecommendation {
     /// Produces recommendation from host profile.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::runtime_autotune::{HostResourceProfile, RuntimeTuneRecommendation};
+    /// let rec = RuntimeTuneRecommendation::from_profile(HostResourceProfile { cpu_cores: 8, memory_mib: 8192 });
+    /// assert!(rec.max_inflight >= 64);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn from_profile(profile: HostResourceProfile) -> Self {
         let cores = profile.cpu_cores.max(1);
         let mem = profile.memory_mib.max(256);
@@ -42,6 +78,22 @@ impl RuntimeTuneRecommendation {
 #[cfg(feature = "high-perf")]
 impl RuntimeTuneRecommendation {
     /// Converts recommendation into high-performance server limits.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::runtime_autotune::RuntimeTuneRecommendation;
+    /// let rec = RuntimeTuneRecommendation { max_inflight: 1, max_queue: 2, sendfile_threshold_bytes: 3 };
+    /// #[cfg(feature = "high-perf")]
+    /// {
+    ///     let limits = rec.into_perf_limits();
+    ///     assert_eq!(limits.max_queue, 2);
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn into_perf_limits(self) -> crate::perf_server::PerfLimits {
         crate::perf_server::PerfLimits {
             max_inflight: self.max_inflight,
@@ -52,6 +104,18 @@ impl RuntimeTuneRecommendation {
 }
 
 /// Detects host profile from runtime and lightweight OS hints.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::runtime_autotune::detect_host_profile;
+/// let p = detect_host_profile();
+/// assert!(p.cpu_cores >= 1);
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn detect_host_profile() -> HostResourceProfile {
     let cpu_cores = std::thread::available_parallelism()
         .unwrap_or_else(|_| NonZeroUsize::new(1).expect("non-zero"))

@@ -1,10 +1,21 @@
 //! HTTP/3 production profile primitives.
 //!
 //! This module defines ALPN routing and fallback policy helpers so deployments
-//! can enforce consistent behavior when HTTP/3 is enabled.
+//! can enforce deterministic protocol behavior when HTTP/3 is enabled.
 
 /// Effective protocol route selected after ALPN negotiation.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::ProtocolRoute;
+/// assert_eq!(ProtocolRoute::Http2.to_string(), "h2");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProtocolRoute {
     /// Use HTTP/3 over QUIC.
@@ -16,7 +27,18 @@ pub enum ProtocolRoute {
 }
 
 /// Runtime QUIC tuning preset.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::QuicTuningPreset;
+/// assert!(matches!(QuicTuningPreset::Balanced, QuicTuningPreset::Balanced));
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QuicTuningPreset {
     /// Lower resource use and conservative timeouts.
@@ -28,7 +50,19 @@ pub enum QuicTuningPreset {
 }
 
 /// Derived QUIC runtime tuning values.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::QuicTuning;
+/// let t = QuicTuning { idle_timeout_ms: 1, keep_alive_interval_ms: 1, max_bidi_streams: 1, datagram_receive_buffer_bytes: 1 };
+/// assert_eq!(t.max_bidi_streams, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QuicTuning {
     /// QUIC idle timeout in milliseconds.
@@ -42,7 +76,18 @@ pub struct QuicTuning {
 }
 
 /// Reason describing how route selection was resolved.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::RouteReason;
+/// assert_eq!(RouteReason::Negotiated.to_string(), "negotiated");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RouteReason {
     /// Standard negotiated protocol route.
@@ -60,7 +105,19 @@ pub enum RouteReason {
 }
 
 /// Decision output for ALPN+fallback route resolution.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::{ProtocolRoute, RouteDecision, RouteReason};
+/// let d = RouteDecision { selected: ProtocolRoute::Http11, reason: RouteReason::AlpnMissing, negotiated_alpn: None, fallback_chain: vec![ProtocolRoute::Http11] };
+/// assert_eq!(d.selected, ProtocolRoute::Http11);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteDecision {
     /// Final selected route.
@@ -74,7 +131,19 @@ pub struct RouteDecision {
 }
 
 /// Production-focused HTTP/3 configuration profile.
+/// # Examples
+///
+/// ```rust
+/// use http_handle::http3_profile::Http3ProductionProfile;
+/// let p = Http3ProductionProfile::default();
+/// assert!(p.enabled);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Http3ProductionProfile {
     /// Whether HTTP/3 is enabled.
@@ -92,6 +161,7 @@ pub struct Http3ProductionProfile {
 }
 
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 impl Default for Http3ProductionProfile {
     fn default() -> Self {
         Self {
@@ -110,13 +180,39 @@ impl Default for Http3ProductionProfile {
 }
 
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 impl Http3ProductionProfile {
     /// Returns a strict production baseline with h3-first ALPN ordering.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::Http3ProductionProfile;
+    /// let p = Http3ProductionProfile::production_baseline();
+    /// assert!(p.enabled);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn production_baseline() -> Self {
         Self::default()
     }
 
     /// Returns effective QUIC tuning values from preset and profile.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::Http3ProductionProfile;
+    /// let p = Http3ProductionProfile::default();
+    /// let t = p.quic_tuning();
+    /// assert!(t.idle_timeout_ms > 0);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn quic_tuning(&self) -> QuicTuning {
         match self.quic_preset {
             QuicTuningPreset::Conservative => QuicTuning {
@@ -141,6 +237,18 @@ impl Http3ProductionProfile {
     }
 
     /// Derives the serving route from negotiated ALPN protocol bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::{Http3ProductionProfile, ProtocolRoute};
+    /// let p = Http3ProductionProfile::default();
+    /// assert_eq!(p.route_for_alpn(Some(b"h3")), ProtocolRoute::Http3);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn route_for_alpn(
         &self,
         negotiated_alpn: Option<&[u8]>,
@@ -165,6 +273,19 @@ impl Http3ProductionProfile {
     }
 
     /// Selects a route from offered client ALPN tokens and server preference.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::{Http3ProductionProfile, ProtocolRoute};
+    /// let p = Http3ProductionProfile::default();
+    /// let offered = vec![b"h2".to_vec()];
+    /// assert_eq!(p.route_for_client_alpns(&offered), ProtocolRoute::Http2);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn route_for_client_alpns(
         &self,
         client_offered_alpns: &[Vec<u8>],
@@ -185,6 +306,18 @@ impl Http3ProductionProfile {
     }
 
     /// Returns ordered protocol fallback chain.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::Http3ProductionProfile;
+    /// let p = Http3ProductionProfile::default();
+    /// assert!(!p.fallback_chain().is_empty());
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn fallback_chain(&self) -> Vec<ProtocolRoute> {
         let mut chain = Vec::new();
         for protocol in &self.alpn_order {
@@ -205,6 +338,19 @@ impl Http3ProductionProfile {
     }
 
     /// Resolves final route with explicit fallback decision tree and reason.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::{Http3ProductionProfile, RouteReason};
+    /// let p = Http3ProductionProfile::default();
+    /// let d = p.resolve_route(Some(b"h3"), false);
+    /// assert!(matches!(d.reason, RouteReason::H3HandshakeFailedFallback));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn resolve_route(
         &self,
         negotiated_alpn: Option<&[u8]>,
@@ -257,6 +403,20 @@ impl Http3ProductionProfile {
     }
 
     /// Serializes a compact fallback telemetry line for logs.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::http3_profile::{Http3ProductionProfile, RouteDecision, RouteReason, ProtocolRoute};
+    /// let p = Http3ProductionProfile::default();
+    /// let d = RouteDecision { selected: ProtocolRoute::Http2, reason: RouteReason::Negotiated, negotiated_alpn: Some("h2".into()), fallback_chain: vec![ProtocolRoute::Http3, ProtocolRoute::Http2] };
+    /// let line = p.telemetry_line(&d);
+    /// assert!(line.contains("http3.route"));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn telemetry_line(&self, decision: &RouteDecision) -> String {
         format!(
             "http3.route={} reason={} negotiated={} chain={}",
@@ -274,6 +434,7 @@ impl Http3ProductionProfile {
 }
 
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 impl std::fmt::Display for ProtocolRoute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -286,6 +447,7 @@ impl std::fmt::Display for ProtocolRoute {
 }
 
 #[cfg(feature = "http3-profile")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3-profile")))]
 impl std::fmt::Display for RouteReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {

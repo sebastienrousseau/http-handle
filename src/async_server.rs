@@ -1,10 +1,16 @@
-//! Async server entrypoints (feature-gated).
+//! Async Tokio server entrypoints.
+//!
+//! This module provides the async accept loop that bridges into the existing request
+//! handling stack.
 
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 use crate::async_runtime::run_blocking;
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 use crate::error::ServerError;
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 use crate::server::Server;
 
 /// Starts an async accept loop backed by Tokio.
@@ -12,6 +18,27 @@ use crate::server::Server;
 /// Each accepted connection is converted to a standard stream and served via the
 /// existing synchronous connection handler on Tokio's blocking pool.
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::async_server::start_async;
+/// use http_handle::Server;
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() {
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// let _ = start_async(server).await;
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when binding or accept fails.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub async fn start_async(server: Server) -> Result<(), ServerError> {
     let listener = tokio::net::TcpListener::bind(server.address())
         .await

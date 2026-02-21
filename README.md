@@ -19,29 +19,35 @@ A Rust-based HTTP server for serving static websites.
 </center>
 <!-- markdownlint-enable MD033 MD041 -->
 
-## Overview
+## Architectural Overview
 
-The `http-handle` is a robust Rust library designed for serving static websites. It provides a simple yet efficient HTTP server implementation with features like request parsing, response generation, and basic security measures. The library is not intended to be a full-fledged web server but rather a lightweight solution for serving static files over HTTP for development and testing purposes.
+Use `http-handle` to serve static content fast, then scale to production policies without rewriting your core server path.
 
-## Features
+Follow this critical path:
 
-- **Static File Serving**: Serve static files from a configured document root.
-- **Request Parsing**: Parse incoming HTTP requests with proper error handling.
-- **Response Generation**: Generate appropriate HTTP responses based on requests.
-- **Security Measures**: Prevent directory traversal attacks.
-- **Content Type Detection**: Automatically detect and set appropriate content types for files.
-- **Customizable 404 Handling**: Support for custom 404 error pages.
-- **Sync + Async Serving Paths**: Traditional threaded mode and async-first high-performance mode.
-- **Configurable Server**: Easy configuration of server address and document root.
-- **Async-First Performance Mode**: Backpressure-aware accept loop with queue limits and sendfile fast path.
-- **Precompressed Assets**: Built-in negotiation for Brotli, gzip, and zstd static assets.
-- **Enterprise Policy Layer**: TLS/mTLS, API key/JWT auth, runtime profiles, and hot-reloadable config.
-- **Pluggable Authorization**: RBAC/ABAC policy adapters with composable authorization hooks.
-- **Portability Matrix**: Cross-platform conformance tests and target-tier support matrix.
-- **Protocol Support Roadmap**: HTTP/2 runtime support plus HTTP/3 QUIC tuning presets, ALPN policy, and explicit fallback telemetry.
-- **Distributed Rate Limiting**: Pluggable Redis/Memcached-style adapters with in-memory fallback backend.
-- **Tenant Isolation**: Tenant-scoped config store and secret-provider abstraction.
-- **Runtime Auto-Tuning**: Host-aware recommendations for high-performance runtime limits.
+1. Build and configure a server (`Server` / `ServerBuilder`).
+2. Parse incoming HTTP requests into typed request data.
+3. Generate and emit policy-aware HTTP responses.
+
+## Feature List
+
+- **Core Serving**: Static file routing, MIME detection, custom 404 pages, and request/response primitives.
+- **Operational Safety**: Directory traversal protection, graceful shutdown, and configurable timeout handling.
+- **Performance Paths**: Sync + async serving, precompressed asset negotiation (`br` / `gzip` / `zstd`), and high-performance runtime mode.
+- **Protocol Growth**: HTTP/2 support and HTTP/3 profile/fallback policy primitives.
+- **Enterprise Controls**: TLS/mTLS policy, API key/JWT auth hooks, RBAC/ABAC adapters, and runtime config reload patterns.
+- **Scale Features**: Distributed rate limiting, tenant isolation, observability hooks, and runtime auto-tuning.
+
+## Platform Support Matrix
+
+`http-handle` is validated with portability conformance tests and CI coverage across Unix-like targets.
+
+| Platform | Status | Notes |
+|---|---|---|
+| macOS | Supported | Primary development workflow and CI coverage. |
+| Linux | Supported | Production target for deployments and containers (validated on Ubuntu CI; Debian-compatible runtime assumptions). |
+| Windows (MSVC) | Supported | Tier-1 target in the portability policy and CI matrix. |
+| WSL (Windows Subsystem for Linux) | Supported | Uses Linux target behavior in WSL runtime. |
 
 ## Installation
 
@@ -52,72 +58,60 @@ Add this to your `Cargo.toml`:
 http-handle = "0.0.3"
 ```
 
-## Usage
+## Quick Start
 
-Here's a basic example of how to use `http-handle`:
+Start with `Server::new`. Move to `ServerBuilder` when you need explicit policy controls.
 
-```rust
+```rust,no_run
 use http_handle::Server;
-use std::thread;
-use std::time::Duration;
 
 fn main() -> std::io::Result<()> {
-    // Create a new server with an address and document root
     let server = Server::new("127.0.0.1:8080", "./public");
-
-    // Run the server in a separate thread so it doesn't block
-    let server_handle = thread::spawn(move || {
-        server.start().expect("Server failed to start");
-    });
-
-    // Let the server run for 2 seconds before shutting it down
-    thread::sleep(Duration::from_secs(2));
-
-    println!("Server has been running for 2 seconds, shutting down...");
-    
-    // In a real-world scenario, you would need to implement a proper shutdown signal
-    // This just exits the program after the duration.
-    
-    Ok(())
+    server.start()
 }
 ```
 
-This will start a server listening on `127.0.0.1:8080`, serving files from the `./public` directory.
+The server listens on `127.0.0.1:8080` and serves files from `./public`.
 
 ## Documentation
 
-For full API documentation, please visit [docs.rs/http-handle][04].
-Portability support and target matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md).
-Protocol support details: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md).
-SLSA/Scorecard policies: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md),
-[`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md).
-Container hardening policy: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md).
-Distributed rate limits: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md).
-Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md).
-Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md).
+Primary API docs: [docs.rs/http-handle][04]  
+GitHub Pages mirror: <https://sebastienrousseau.github.io/http-handle/>
+
+Local docs rendering (with docs.rs feature-gate badges):
+
+```bash
+RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --open --all-features
+```
+
+Supporting docs:
+- Portability matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md)
+- Protocol support: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md)
+- Tutorials: [`docs/TUTORIALS.md`](docs/TUTORIALS.md)
+- Architecture diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Benchmark reproducibility: [`docs/BENCHMARK_REPRODUCIBILITY.md`](docs/BENCHMARK_REPRODUCIBILITY.md)
+- Supply chain and scorecard policy: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md), [`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md)
+- Container hardening: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md)
+- Distributed rate limiting: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md)
+- Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md)
+- Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md)
 
 ## Examples
 
-To explore more examples, clone the repository and run the following command:
+Run any example:
 
 ```shell
 cargo run --example example_name
 ```
 
-Key examples by capability:
+Start with these examples:
+- `server_example`: Build a server and serve a document root.
+- `server_builder_example`: Apply headers, CORS, and timeout policies.
+- `feature_async_server`: Run the async accept path.
+- `feature_http2_server`: Start the HTTP/2 path behind the `http2` feature.
+- `feature_runtime_autotune`: Derive runtime limits from host profile.
 
-- Core server: `basic_server`, `server_builder_example`, `graceful_shutdown_example`
-- Request/response primitives: `request_example`, `response_example`, `error_example`
-- Unified + legacy library demos: `full_demo`, `lib_example_legacy`
-- Performance and pooling: `pooling_performance_example`, `scenario_server_policies`
-- Performance benchmarking target: `benchmark_target`
-- Language and optimization: `feature_language_detection`, `feature_optimized_lookups`
-- Batch and streaming: `feature_batch_processing`, `feature_streaming_chunks`
-- Async and protocol: `feature_async_runtime`, `feature_async_server`, `feature_http2_server`, `feature_http3_profile`
-- Enterprise scaling: `feature_distributed_rate_limit`, `feature_tenant_isolation`, `feature_runtime_autotune`
-- Observability: `feature_observability`
-
-For a full feature-to-example map, see [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
+Examples index: [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
 
 ## Contributing
 

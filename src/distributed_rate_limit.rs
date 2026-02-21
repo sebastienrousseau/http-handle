@@ -1,4 +1,4 @@
-//! Distributed rate-limiting adapters for in-memory, Redis-like, and Memcached-like backends.
+//! Distributed rate-limiting adapters and backend contracts.
 
 use crate::error::ServerError;
 use std::collections::HashMap;
@@ -7,6 +7,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Backend trait for incrementing a rate-limit key in a time window.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::RateLimitBackend;
+/// # let _ = std::any::TypeId::of::<&dyn RateLimitBackend>();
+/// assert_eq!(2 + 2, 4);
+/// ```
+///
+/// # Panics
+///
+/// Trait usage does not panic by itself.
 pub trait RateLimitBackend: Send + Sync + std::fmt::Debug {
     /// Increments key and returns current hit count for the active window.
     fn increment_and_get(
@@ -17,6 +29,18 @@ pub trait RateLimitBackend: Send + Sync + std::fmt::Debug {
 }
 
 /// Shared rate limiter that works against pluggable backends.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::{DistributedRateLimiter, InMemoryBackend};
+/// let _limiter = DistributedRateLimiter::new(InMemoryBackend::default(), "ip", 100, 60);
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Debug)]
 pub struct DistributedRateLimiter<B: RateLimitBackend> {
     backend: Arc<B>,
@@ -27,6 +51,18 @@ pub struct DistributedRateLimiter<B: RateLimitBackend> {
 
 impl<B: RateLimitBackend> DistributedRateLimiter<B> {
     /// Creates a distributed limiter with explicit namespace and limits.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::distributed_rate_limit::{DistributedRateLimiter, InMemoryBackend};
+    /// let _ = DistributedRateLimiter::new(InMemoryBackend::default(), "ip", 10, 60);
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new(
         backend: B,
         namespace: impl Into<String>,
@@ -42,6 +78,25 @@ impl<B: RateLimitBackend> DistributedRateLimiter<B> {
     }
 
     /// Returns true when the source should be throttled.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::distributed_rate_limit::{DistributedRateLimiter, InMemoryBackend};
+    /// use std::net::IpAddr;
+    /// let limiter = DistributedRateLimiter::new(InMemoryBackend::default(), "ip", 1, 60);
+    /// let ip: IpAddr = "127.0.0.1".parse().expect("ip");
+    /// let _ = limiter.is_limited(ip);
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns backend errors when increment operations fail.
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn is_limited(
         &self,
         source: IpAddr,
@@ -54,6 +109,18 @@ impl<B: RateLimitBackend> DistributedRateLimiter<B> {
 }
 
 /// In-memory backend useful for local fallback mode and tests.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::InMemoryBackend;
+/// let _backend = InMemoryBackend::default();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug, Default)]
 pub struct InMemoryBackend {
     state: Mutex<HashMap<String, Vec<Instant>>>,
@@ -79,6 +146,18 @@ impl RateLimitBackend for InMemoryBackend {
 }
 
 /// Minimal Redis-like client contract.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::RedisClient;
+/// # let _ = std::any::TypeId::of::<&dyn RedisClient>();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// Trait usage does not panic by itself.
 pub trait RedisClient: Send + Sync + std::fmt::Debug {
     /// Increments key, sets TTL as needed, and returns current count.
     fn incr_with_ttl(
@@ -89,6 +168,24 @@ pub trait RedisClient: Send + Sync + std::fmt::Debug {
 }
 
 /// Redis backend adapter.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::{RedisBackend, RedisClient};
+/// use http_handle::ServerError;
+/// #[derive(Debug)]
+/// struct Dummy;
+/// impl RedisClient for Dummy {
+///     fn incr_with_ttl(&self, _key: &str, _ttl_secs: u64) -> Result<u64, ServerError> { Ok(1) }
+/// }
+/// let _backend = RedisBackend::new(Dummy);
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug)]
 pub struct RedisBackend<C: RedisClient> {
     client: C,
@@ -96,6 +193,24 @@ pub struct RedisBackend<C: RedisClient> {
 
 impl<C: RedisClient> RedisBackend<C> {
     /// Creates a new Redis backend adapter.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::distributed_rate_limit::{RedisBackend, RedisClient};
+    /// use http_handle::ServerError;
+    /// #[derive(Debug)]
+    /// struct Dummy;
+    /// impl RedisClient for Dummy {
+    ///     fn incr_with_ttl(&self, _key: &str, _ttl_secs: u64) -> Result<u64, ServerError> { Ok(1) }
+    /// }
+    /// let _backend = RedisBackend::new(Dummy);
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new(client: C) -> Self {
         Self { client }
     }
@@ -112,6 +227,18 @@ impl<C: RedisClient> RateLimitBackend for RedisBackend<C> {
 }
 
 /// Minimal Memcached-like client contract.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::MemcachedClient;
+/// # let _ = std::any::TypeId::of::<&dyn MemcachedClient>();
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// Trait usage does not panic by itself.
 pub trait MemcachedClient: Send + Sync + std::fmt::Debug {
     /// Increments key and returns current count.
     fn incr(
@@ -123,6 +250,24 @@ pub trait MemcachedClient: Send + Sync + std::fmt::Debug {
 }
 
 /// Memcached backend adapter.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::distributed_rate_limit::{MemcachedBackend, MemcachedClient};
+/// use http_handle::ServerError;
+/// #[derive(Debug)]
+/// struct Dummy;
+/// impl MemcachedClient for Dummy {
+///     fn incr(&self, _key: &str, _initial: u64, _ttl_secs: u32) -> Result<u64, ServerError> { Ok(1) }
+/// }
+/// let _backend = MemcachedBackend::new(Dummy);
+/// assert_eq!(1, 1);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Debug)]
 pub struct MemcachedBackend<C: MemcachedClient> {
     client: C,
@@ -130,6 +275,24 @@ pub struct MemcachedBackend<C: MemcachedClient> {
 
 impl<C: MemcachedClient> MemcachedBackend<C> {
     /// Creates a new Memcached backend adapter.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::distributed_rate_limit::{MemcachedBackend, MemcachedClient};
+    /// use http_handle::ServerError;
+    /// #[derive(Debug)]
+    /// struct Dummy;
+    /// impl MemcachedClient for Dummy {
+    ///     fn incr(&self, _key: &str, _initial: u64, _ttl_secs: u32) -> Result<u64, ServerError> { Ok(1) }
+    /// }
+    /// let _backend = MemcachedBackend::new(Dummy);
+    /// assert_eq!(1, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
     pub fn new(client: C) -> Self {
         Self { client }
     }

@@ -1,32 +1,56 @@
-//! High-performance async-first HTTP/1 server primitives (feature-gated).
+//! High-performance async-first HTTP/1 server primitives.
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use crate::error::ServerError;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use crate::request::Request;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use crate::response::Response;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use crate::server::{Server, build_response_for_request_with_metrics};
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::collections::HashMap;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::sync::Arc;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use tokio::sync::Semaphore;
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use tokio::time::{Duration, timeout};
 
 /// Runtime limits for the high-performance server mode.
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::perf_server::PerfLimits;
+/// let limits = PerfLimits::default();
+/// assert!(limits.max_inflight > 0);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic.
 #[derive(Clone, Copy, Debug)]
 pub struct PerfLimits {
     /// Maximum number of concurrently processed connections.
@@ -38,6 +62,7 @@ pub struct PerfLimits {
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 impl Default for PerfLimits {
     fn default() -> Self {
         Self {
@@ -53,6 +78,27 @@ impl Default for PerfLimits {
 /// This path prioritizes throughput-per-core by avoiding a thread-per-connection model,
 /// enforcing queue limits, and using a sendfile fast-path for large static files.
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::perf_server::{start_high_perf, PerfLimits};
+/// use http_handle::Server;
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() {
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// let _ = start_high_perf(server, PerfLimits::default()).await;
+/// # }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when socket binding or accept fails.
+///
+/// # Panics
+///
+/// This function does not panic.
 pub async fn start_high_perf(
     server: Server,
     limits: PerfLimits,
@@ -105,6 +151,7 @@ pub async fn start_high_perf(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 async fn handle_async_connection(
     mut stream: tokio::net::TcpStream,
     server: &Server,
@@ -143,6 +190,7 @@ async fn handle_async_connection(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn parse_request_from_bytes(
     bytes: &[u8],
 ) -> Result<Request, ServerError> {
@@ -195,6 +243,7 @@ fn parse_request_from_bytes(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 async fn send_response_async(
     stream: &mut tokio::net::TcpStream,
     response: &Response,
@@ -241,6 +290,7 @@ async fn send_response_async(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 async fn try_send_static_file_fast_path(
     stream: &mut tokio::net::TcpStream,
     server: &Server,
@@ -322,6 +372,7 @@ async fn try_send_static_file_fast_path(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn resolve_static_path(
     root: &Path,
     request_path: &str,
@@ -363,6 +414,7 @@ fn resolve_static_path(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn negotiate_precompressed(
     path: &Path,
     request: &Request,
@@ -403,6 +455,7 @@ fn negotiate_precompressed(
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn content_type_for_path(path: &Path) -> &'static str {
     match path
         .extension()
@@ -423,6 +476,7 @@ fn content_type_for_path(path: &Path) -> &'static str {
 }
 
 #[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn is_probably_immutable_asset(path: &str) -> bool {
     let file = path.rsplit('/').next().unwrap_or(path);
     let Some((stem, _ext)) = file.rsplit_once('.') else {

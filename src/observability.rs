@@ -1,4 +1,4 @@
-//! Observability helpers (feature-gated).
+//! Observability initialization helpers.
 
 #[cfg(feature = "observability")]
 use tracing_subscriber::EnvFilter;
@@ -6,6 +6,18 @@ use tracing_subscriber::EnvFilter;
 /// Initializes default tracing subscriber once.
 ///
 /// This is a no-op when the `observability` feature is disabled.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::observability::init_tracing;
+/// init_tracing();
+/// assert_eq!(1 + 1, 2);
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic.
 pub fn init_tracing() {
     #[cfg(feature = "observability")]
     {

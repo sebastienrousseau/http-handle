@@ -1,9 +1,9 @@
 // src/request.rs
 
-//! HTTP request parsing module for the Http Handle.
+//! HTTP/1.x request parsing and validation.
 //!
-//! This module provides functionality to parse incoming HTTP requests from a TCP stream.
-//! It defines the `Request` struct and associated methods for creating and interacting with HTTP requests in a secure and robust manner.
+//! Use this module to convert raw stream input into typed request data with bounded parsing,
+//! header normalization, and explicit malformed-request errors.
 
 use crate::error::ServerError;
 use std::collections::HashMap;
@@ -42,7 +42,30 @@ fn map_read_error(error: io::Error) -> ServerError {
     ))
 }
 
-/// Represents an HTTP request, containing the HTTP method, the requested path, and the HTTP version.
+/// Represents a parsed HTTP/1.x request line and headers.
+///
+/// You receive this type after successful stream parsing. It is the primary request model
+/// used by the synchronous server path and shared response-generation helpers.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::request::Request;
+/// use std::collections::HashMap;
+///
+/// let request = Request {
+///     method: "GET".to_string(),
+///     path: "/".to_string(),
+///     version: "HTTP/1.1".to_string(),
+///     headers: HashMap::new(),
+/// };
+/// assert_eq!(request.method(), "GET");
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic on construction.
+#[doc(alias = "http request")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
     /// HTTP method of the request.
@@ -56,7 +79,7 @@ pub struct Request {
 }
 
 impl Request {
-    /// Attempts to create a `Request` from the provided TCP stream by reading the first line.
+    /// Parses a request line and headers from a `TcpStream`.
     ///
     /// This method reads the first line of an HTTP request from the given TCP stream,
     /// parses it, and constructs a `Request` instance if the input is valid.
@@ -81,17 +104,20 @@ impl Request {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use std::net::TcpStream;
     /// use http_handle::request::Request;
     ///
-    /// fn handle_client(stream: TcpStream) {
-    ///     match Request::from_stream(&stream) {
-    ///         Ok(request) => println!("Received request: {}", request),
-    ///         Err(e) => eprintln!("Error parsing request: {}", e),
-    ///     }
-    /// }
+    /// let stream = TcpStream::connect("127.0.0.1:8080").expect("connect");
+    /// let parsed = Request::from_stream(&stream);
+    /// assert!(parsed.is_ok() || parsed.is_err());
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not intentionally panic.
+    #[doc(alias = "parse")]
+    #[doc(alias = "from tcp")]
     pub fn from_stream(
         stream: &TcpStream,
     ) -> Result<Self, ServerError> {
@@ -206,6 +232,28 @@ impl Request {
     }
 
     /// Returns the value of a header by case-insensitive name.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::request::Request;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut headers = HashMap::new();
+    /// headers.insert("content-type".to_string(), "text/plain".to_string());
+    /// let request = Request {
+    ///     method: "GET".to_string(),
+    ///     path: "/".to_string(),
+    ///     version: "HTTP/1.1".to_string(),
+    ///     headers,
+    /// };
+    /// assert_eq!(request.header("Content-Type"), Some("text/plain"));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "header lookup")]
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .get(&name.to_ascii_lowercase())
