@@ -240,7 +240,7 @@ autotune = ["high-perf"]                    # Runtime auto-tuning for host resou
 # Settings for building and hosting documentation on docs.rs.
 all-features = true                         # Build documentation with all features enabled
 rustdoc-args = ["--cfg", "docsrs"]          # Arguments passed to `rustdoc` when building the documentation
-targets = ["x86_64-unknown-linux-gnu"]      # Default target platform for the docs
+targets = ["x86_64-apple-darwin", "x86_64-unknown-linux-gnu"] # Publish docs metadata for macOS + Linux
 
 # -----------------------------------------------------------------------------
 # Linting Configuration
