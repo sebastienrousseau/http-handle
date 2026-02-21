@@ -10,12 +10,14 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 jobs:
   docs:
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
     with:
       type: rust
