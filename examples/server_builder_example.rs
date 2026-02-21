@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let crate_version = env!("CARGO_PKG_VERSION");
     println!("🚀 HTTP Handle ServerBuilder Example");
     println!("=====================================");
     demonstrate_builder_benefits();
@@ -36,7 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _header_server = Server::builder()
         .address("127.0.0.1:8082")
         .document_root("examples")
-        .custom_header("X-Powered-By", "http-handle v0.0.3")
+        .custom_header(
+            "X-Powered-By",
+            &format!("http-handle v{}", crate_version),
+        )
         .custom_header("X-Content-Type-Options", "nosniff")
         .custom_header("X-Frame-Options", "DENY")
         .custom_header("X-XSS-Protection", "1; mode=block")
@@ -78,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_cors()
         .cors_origins(vec!["*".to_string()])
         .custom_header("X-Server-Name", "http-handle-demo")
-        .custom_header("X-Version", "0.0.3")
+        .custom_header("X-Version", crate_version)
         .request_timeout(Duration::from_secs(45))
         .connection_timeout(Duration::from_secs(120))
         .build()?;

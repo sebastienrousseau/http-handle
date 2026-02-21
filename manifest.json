@@ -1,5 +1,5 @@
 {
-  "project": "http-handle-v0.0.3",
+  "project": "http-handle",
   "dispatches": [
     {
       "agent": "maintainer",

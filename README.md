@@ -31,7 +31,7 @@ The `http-handle` is a robust Rust library designed for serving static websites.
 - **Security Measures**: Prevent directory traversal attacks.
 - **Content Type Detection**: Automatically detect and set appropriate content types for files.
 - **Customizable 404 Handling**: Support for custom 404 error pages.
-- **Threaded Connections**: Handle multiple connections concurrently using threads.
+- **Sync + Async Serving Paths**: Traditional threaded mode and async-first high-performance mode.
 - **Configurable Server**: Easy configuration of server address and document root.
 - **Async-First Performance Mode**: Backpressure-aware accept loop with queue limits and sendfile fast path.
 - **Precompressed Assets**: Built-in negotiation for Brotli, gzip, and zstd static assets.
@@ -117,6 +117,8 @@ Key examples by capability:
 - Enterprise scaling: `feature_distributed_rate_limit`, `feature_tenant_isolation`, `feature_runtime_autotune`
 - Observability: `feature_observability`
 
+For a full feature-to-example map, see [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -152,5 +154,5 @@ Special thanks to all contributors who have helped build the `http-handle` libra
 [crates-badge]: https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust
 [docs-badge]: https://img.shields.io/badge/docs.rs-http--handle-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs
 [github-badge]: https://img.shields.io/badge/github-sebastienrousseau/http--handle-8da0cb?style=for-the-badge&labelColor=555555&logo=github
-[libs-badge]: https://img.shields.io/badge/lib.rs-v0.0.3-orange.svg?style=for-the-badge
+[libs-badge]: https://img.shields.io/badge/lib.rs-http--handle-orange.svg?style=for-the-badge
 [made-with-rust]: https://img.shields.io/badge/rust-f04041?style=for-the-badge&labelColor=c0282d&logo=rust
