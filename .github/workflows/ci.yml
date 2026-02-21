@@ -48,6 +48,6 @@ jobs:
       rust-version: stable
       run-clippy: true
       run-fmt: true
-      run-audit: false
-      run-coverage: false
+      run-audit: true
+      run-coverage: true
     secrets: inherit

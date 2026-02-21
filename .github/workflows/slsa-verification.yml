@@ -7,16 +7,6 @@ on:
       - ".github/workflows/release-artifacts.yml"
       - ".github/workflows/slsa-verification.yml"
       - "docs/SLSA_POLICY.md"
-  workflow_dispatch:
-    inputs:
-      artifact_path:
-        description: "Path to artifact to verify"
-        required: true
-        type: string
-      provenance_path:
-        description: "Path to provenance file (in-toto)"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -27,7 +17,6 @@ concurrency:
 
 jobs:
   policy-enforcement:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -39,19 +28,3 @@ jobs:
           grep -q "id-token: write" "$wf" || { echo "Missing id-token: write permission"; exit 1; }
           grep -q "attestations: write" "$wf" || { echo "Missing attestations: write permission"; exit 1; }
           echo "SLSA policy checks passed"
-
-  verify-dispatch:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Install slsa-verifier
-        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
-      - name: Verify artifact provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          slsa-verifier verify-artifact \
-            "${{ github.event.inputs.artifact_path }}" \
-            --provenance-path "${{ github.event.inputs.provenance_path }}" \
-            --source-uri "github.com/${{ github.repository }}"
