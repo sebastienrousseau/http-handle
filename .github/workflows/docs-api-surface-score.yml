@@ -19,13 +19,16 @@ jobs:
   docs-api-surface-score:
     name: API Surface Docs Score (strict)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Setup nightly Rust + cache
+        uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: nightly
 
       - name: Run API surface docs gate
         run: ./scripts/score_docs_api_surface.sh

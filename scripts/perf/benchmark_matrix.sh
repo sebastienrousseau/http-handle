@@ -8,6 +8,9 @@ FEATURES="${HTTP_HANDLE_FEATURES:-async,high-perf}"
 BOMBARDIER_REQS="${BOMBARDIER_REQS:-20000}"
 BOMBARDIER_C="${BOMBARDIER_C:-128}"
 MIN_RPS="${MIN_RPS:-1500}"
+READY_RETRIES="${READY_RETRIES:-600}"
+READY_SLEEP_SECS="${READY_SLEEP_SECS:-0.1}"
+PREBUILT_BIN="${PREBUILT_BIN:-target/debug/examples/benchmark_target}"
 
 mkdir -p "${ROOT_DIR}"
 python3 - <<'PY'
@@ -27,15 +30,24 @@ export HTTP_HANDLE_ADDR="$ADDR"
 export HTTP_HANDLE_ROOT="$ROOT_DIR"
 export HTTP_HANDLE_MODE="$MODE"
 
-cargo run --example benchmark_target --features "$FEATURES" >/tmp/http_handle_bench.log 2>&1 &
+if [[ -n "${PERF_USE_PREBUILT:-}" && -x "${PREBUILT_BIN}" ]]; then
+  env HTTP_HANDLE_ADDR="$ADDR" HTTP_HANDLE_ROOT="$ROOT_DIR" HTTP_HANDLE_MODE="$MODE" \
+    "${PREBUILT_BIN}" >/tmp/http_handle_bench.log 2>&1 &
+else
+  cargo run --example benchmark_target --features "$FEATURES" >/tmp/http_handle_bench.log 2>&1 &
+fi
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 
-for _ in $(seq 1 50); do
+for _ in $(seq 1 "${READY_RETRIES}"); do
   if nc -z "${ADDR%:*}" "${ADDR##*:}" >/dev/null 2>&1; then
     break
   fi
-  sleep 0.1
+  # Exit fast if server process died while bootstrapping.
+  if ! kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep "${READY_SLEEP_SECS}"
 done
 
 if ! nc -z "${ADDR%:*}" "${ADDR##*:}" >/dev/null 2>&1; then

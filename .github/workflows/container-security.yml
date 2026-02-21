@@ -31,7 +31,7 @@ jobs:
       - name: Build image for scan
         run: |
           set -euo pipefail
-          tag="http-handle-scan:${{ matrix.dockerfile##*/ }}"
+          tag="http-handle-scan:$(basename "${{ matrix.dockerfile }}")"
           docker build -f "${{ matrix.dockerfile }}" -t "$tag" .
           echo "SCAN_IMAGE=$tag" >> "$GITHUB_ENV"
       - name: Scan image with Trivy

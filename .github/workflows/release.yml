@@ -9,6 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
 jobs:
   release:
     uses: sebastienrousseau/pipelines/.github/workflows/release.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1

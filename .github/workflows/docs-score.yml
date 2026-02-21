@@ -19,10 +19,11 @@ jobs:
   docs-score:
     name: Documentation Score (must be 100/100)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Run docs scoring gate
         run: ./scripts/score_docs.sh

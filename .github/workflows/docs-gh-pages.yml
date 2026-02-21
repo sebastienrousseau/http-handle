@@ -17,13 +17,16 @@ jobs:
   publish-docs:
     name: Publish rustdoc to gh-pages
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install nightly Rust
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Setup nightly Rust + cache
+        uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: nightly
 
       - name: Build docs (docs.rs-style)
         env:
@@ -38,7 +41,7 @@ jobs:
           touch target/doc/.nojekyll
 
       - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@e9c66a37f080288a11235e32cbe2dc5fb3a679cc # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: target/doc
