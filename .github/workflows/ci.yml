@@ -49,5 +49,7 @@ jobs:
       run-clippy: true
       run-fmt: true
       run-audit: true
-      run-coverage: true
+      # Coverage is enforced by .github/workflows/coverage-strict.yml.
+      # Disable duplicate pipeline coverage job to avoid Codecov-token failures on protected branches.
+      run-coverage: false
     secrets: inherit
