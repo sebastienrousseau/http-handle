@@ -1,0 +1,44 @@
+name: PR Signature
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  enforce-euxis-signature:
+    name: Enforce Euxis PR Signature
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR body signature block
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PR_BODY:-}" ]]; then
+            echo "PR description is empty. Euxis signature block is required."
+            exit 1
+          fi
+
+          if ! grep -qF "Designed by Sebastien Rousseau" <<<"$PR_BODY"; then
+            echo "Missing signature line: Designed by Sebastien Rousseau"
+            exit 1
+          fi
+
+          if ! grep -qF "Engineered with Euxis" <<<"$PR_BODY"; then
+            echo "Missing signature line: Engineered with Euxis"
+            exit 1
+          fi
+
+          if ! grep -qF "https://euxis.co" <<<"$PR_BODY"; then
+            echo "Missing signature URL: https://euxis.co"
+            exit 1
+          fi
+
+          echo "PR signature block present."
