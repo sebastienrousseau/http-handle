@@ -1186,7 +1186,7 @@ fn generate_metrics_response() -> Response {
         METRIC_RATE_LIMITED.load(Ordering::Relaxed),
     );
     let mut response = Response::new(200, "OK", body.into_bytes());
-    response.add_header("Content-Type", "text/plain; version=0.0.4");
+    response.add_header("Content-Type", "text/plain; version=0.0.3");
     response
 }
 
