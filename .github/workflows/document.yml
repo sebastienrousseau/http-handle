@@ -14,12 +14,16 @@ permissions:
 
 jobs:
   docs:
+    name: Build Rust Docs
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pages: write
-      id-token: write
-    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
-    with:
-      type: rust
-      deploy: true
-      working-directory: .
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: nightly
+      - name: Build docs
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        run: cargo +nightly doc --all-features --no-deps
