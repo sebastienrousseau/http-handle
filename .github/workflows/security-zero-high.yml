@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
       - uses: taiki-e/install-action@3129e4e510409181151d4a2b5a23cddc723a7015 # cargo-audit
+        with:
+          tool: cargo-audit
       - name: Enforce cargo-audit policy
         run: cargo audit --deny warnings
 
