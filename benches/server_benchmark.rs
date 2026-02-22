@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0 OR MIT
-// See LICENSE-APACHE.md and LICENSE-MIT.md in the repository root for full license information.
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
 
 #![allow(missing_docs)]
 

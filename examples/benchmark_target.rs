@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Benchmark target server used by CI performance matrix.
 
 use http_handle::Server;

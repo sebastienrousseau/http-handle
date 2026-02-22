@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Pull-based chunked streaming utilities for large files.
 
 use crate::error::ServerError;

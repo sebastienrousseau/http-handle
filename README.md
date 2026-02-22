@@ -122,12 +122,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under either of
-
-- [Apache License, Version 2.0][10]
-- [MIT license][11]
-
-at your option.
+This project is licensed under the [GNU Affero General Public License v3.0][10].
 
 ## Acknowledgements
 
@@ -143,8 +138,7 @@ Special thanks to all contributors who have helped build the `http-handle` libra
 [07]: https://github.com/sebastienrousseau/http-handle/actions?query=branch%3Amain
 [08]: https://www.rust-lang.org/
 [09]: https://github.com/sebastienrousseau/http-handle
-[10]: https://www.apache.org/licenses/LICENSE-2.0
-[11]: https://opensource.org/licenses/MIT
+[10]: https://www.gnu.org/licenses/agpl-3.0.en.html
 
 [build-badge]: https://img.shields.io/github/actions/workflow/status/sebastienrousseau/http-handle/release.yml?branch=main&style=for-the-badge&logo=github
 [codecov-badge]: https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&token=OOnQTi8yIQ&logo=codecov

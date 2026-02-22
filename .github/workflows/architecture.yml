@@ -5,12 +5,16 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "tests/**"
+      - "scripts/**"
       - "Cargo.toml"
       - ".github/workflows/architecture.yml"
   pull_request:
     branches: [main]
     paths:
       - "src/**"
+      - "tests/**"
+      - "scripts/**"
       - "Cargo.toml"
       - ".github/workflows/architecture.yml"
   workflow_dispatch:
@@ -30,9 +34,8 @@ jobs:
       - name: Verify module boundaries
         run: |
           set -euo pipefail
-          # Prevent cross-layer import cycles from low-level modules into server implementation.
-          if rg -n "crate::server" src/request.rs src/response.rs src/error.rs; then
-            echo "Boundary violation: low-level modules must not depend on server module"
-            exit 1
-          fi
-          echo "Architecture boundaries verified"
+          ./scripts/validate_architecture_independence.sh
+      - name: Enforce naming conventions
+        run: |
+          set -euo pipefail
+          ./scripts/enforce_naming_conventions.sh

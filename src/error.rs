@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 // src/error.rs
 
 //! Error model for runtime, parsing, and policy operations.

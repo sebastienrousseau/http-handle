@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Zero-allocation lookup helpers for hot-path operations.
 
 use crate::language::Language;

@@ -10,7 +10,7 @@ version = "0.0.3"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.87.0"                     # Minimum supported Rust version
-license = "MIT OR Apache-2.0"               # Dual licensing strategy for MIT and Apache-2.0
+license = "AGPL-3.0-only"                   # Project license
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
 """                                         # Short library description

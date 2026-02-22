@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Example showing HTTP/3 ALPN routing and fallback policy.
 
 #[cfg(feature = "http3-profile")]

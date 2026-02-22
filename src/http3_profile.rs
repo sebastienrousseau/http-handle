@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! HTTP/3 production profile primitives.
 //!
 //! This module defines ALPN routing and fallback policy helpers so deployments

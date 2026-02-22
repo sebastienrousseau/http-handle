@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Async Tokio server entrypoints.
 //!
 //! This module provides the async accept loop that bridges into the existing request

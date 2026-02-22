@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! HTTP/2 (h2c) server example that serves one request.
 
 #[cfg(feature = "http2")]

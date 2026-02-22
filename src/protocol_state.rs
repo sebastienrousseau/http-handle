@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Protocol byte-classification helpers for fuzzing and conformance tests.
 
 /// Classification outcome for input protocol bytes.

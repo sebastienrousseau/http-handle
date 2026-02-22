@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 // examples/pooling_performance_example.rs
 
 //! Performance comparison example demonstrating the benefits of thread pooling

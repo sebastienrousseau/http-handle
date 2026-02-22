@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Chunked streaming example for large files.
 
 #[cfg(feature = "streaming")]

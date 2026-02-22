@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Example demonstrating the ServerBuilder pattern usage
 //!
 //! This example shows how to use the ServerBuilder to configure a server

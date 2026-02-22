@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! # Graceful Shutdown Server Example
 //!
 //! This example demonstrates how to use the `http-handle` library with graceful shutdown

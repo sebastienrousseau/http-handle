@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! HTTP/2 server entrypoints (feature-gated).
 //!
 //! This module provides a clear-text HTTP/2 (h2c) accept loop that reuses

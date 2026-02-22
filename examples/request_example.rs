@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! # HTTP Request Example
 //!
 //! This example demonstrates how to use the `Request` struct from the `http-handle` library

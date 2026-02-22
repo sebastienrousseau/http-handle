@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! This build script checks if the current Rustc version is at least the
 //! minimum required version.
 //! If the current Rustc version is less than the minimum required version,

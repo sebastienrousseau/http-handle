@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Enterprise policy primitives for transport security, auth, telemetry, and runtime profiles.
 
 #[cfg(feature = "enterprise")]

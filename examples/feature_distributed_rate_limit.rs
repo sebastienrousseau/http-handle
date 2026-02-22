@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! Example showing distributed rate limiting with in-memory fallback backend.
 
 #[cfg(feature = "distributed-rate-limit")]
