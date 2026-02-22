@@ -10,7 +10,13 @@ if [[ ${#py_files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-python3 -m pip install --quiet black isort ruff
+for tool in ruff black isort; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required formatter/linter: $tool"
+    echo "Install pinned tooling in CI before running this gate."
+    exit 1
+  fi
+done
 
 ruff check .
 black --check .
