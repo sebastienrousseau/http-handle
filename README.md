@@ -112,6 +112,7 @@ Start with these examples:
 - `server_builder_example`: Apply headers, CORS, and timeout policies.
 - `feature_async_server`: Run the async accept path.
 - `feature_http2_server`: Start the HTTP/2 path behind the `http2` feature.
+- `feature_enterprise_authorization`: Enforce RBAC authorization for an HTTP request.
 - `feature_runtime_autotune`: Derive runtime limits from host profile.
 
 Examples index: [`docs/EXAMPLES.md`](docs/EXAMPLES.md).

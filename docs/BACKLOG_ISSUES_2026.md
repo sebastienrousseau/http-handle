@@ -12,3 +12,10 @@ The following items are intentionally deferred from the current implementation b
 8. Multi-tenant config isolation and secret provider integrations. Issue: #28
 9. End-to-end protocol fuzzing for HTTP/2 + TLS handshake state machine. Issue: #29
 10. Performance auto-tuning based on runtime host resources. Issue: #30
+
+## Status Snapshot
+
+- Implemented on `feat/v0.0.3` and pending issue closure verification:
+  - #22 Supply-chain attestation enforcement (SLSA provenance gate)
+  - #24 OSSF Scorecard threshold enforcement on pull requests
+  - #26 Fine-grained authorization policies (RBAC/ABAC policy adapters)

@@ -190,6 +190,12 @@ path = "examples/feature_runtime_autotune.rs" # Path to the example file
 required-features = ["autotune"]           # Only build when autotune is enabled
 
 [[example]]
+# Example code demonstrating enterprise authorization policies.
+name = "feature_enterprise_authorization"  # Name of the example
+path = "examples/feature_enterprise_authorization.rs" # Path to the example file
+required-features = ["enterprise"]         # Only build when enterprise is enabled
+
+[[example]]
 # Example code demonstrating practical server policy configuration.
 name = "scenario_server_policies"          # Name of the example
 path = "examples/scenario_server_policies.rs" # Path to the example file

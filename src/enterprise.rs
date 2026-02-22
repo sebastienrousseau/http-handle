@@ -8,6 +8,9 @@
 use crate::error::ServerError;
 #[cfg(feature = "enterprise")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+use crate::request::Request;
+#[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use arc_swap::ArcSwap;
 #[cfg(feature = "enterprise")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
@@ -899,6 +902,111 @@ impl AuthorizationHook {
         }
         AuthorizationDecision::Allow
     }
+
+    /// Evaluates authorization from an HTTP request.
+    ///
+    /// Use this helper to map request method and path into an authorization
+    /// context without repeating context construction in each handler.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::enterprise::{AuthorizationDecision, AuthorizationHook, RbacAdapter};
+    /// use http_handle::request::Request;
+    /// use std::collections::HashMap;
+    ///
+    /// let auth = AuthorizationHook::new().with_engine(
+    ///     RbacAdapter::default()
+    ///         .grant_role("service-a", "reader")
+    ///         .grant_permission("reader", "/metrics", "GET"),
+    /// );
+    /// let request = Request {
+    ///     method: "GET".to_string(),
+    ///     path: "/metrics".to_string(),
+    ///     version: "HTTP/1.1".to_string(),
+    ///     headers: HashMap::new(),
+    /// };
+    ///
+    /// let decision = auth.evaluate_http_request(
+    ///     &request,
+    ///     "service-a",
+    ///     HashMap::new(),
+    /// );
+    /// assert!(matches!(decision, AuthorizationDecision::Allow));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "authorize request")]
+    pub fn evaluate_http_request(
+        &self,
+        request: &Request,
+        subject: impl Into<String>,
+        attributes: HashMap<String, String>,
+    ) -> AuthorizationDecision {
+        let context = AuthorizationContext {
+            subject: subject.into(),
+            resource: request.path().to_string(),
+            action: request.method().to_string(),
+            attributes,
+        };
+        self.evaluate(&context)
+    }
+}
+
+/// Enforces authorization for an HTTP request.
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::enterprise::{enforce_http_request_authorization, AuthorizationHook, RbacAdapter};
+/// use http_handle::request::Request;
+/// use std::collections::HashMap;
+///
+/// let auth = AuthorizationHook::new().with_engine(
+///     RbacAdapter::default()
+///         .grant_role("service-a", "reader")
+///         .grant_permission("reader", "/health", "GET"),
+/// );
+/// let request = Request {
+///     method: "GET".to_string(),
+///     path: "/health".to_string(),
+///     version: "HTTP/1.1".to_string(),
+///     headers: HashMap::new(),
+/// };
+///
+/// let result = enforce_http_request_authorization(
+///     &auth,
+///     &request,
+///     "service-a",
+///     HashMap::new(),
+/// );
+/// assert!(result.is_ok());
+/// ```
+///
+/// # Errors
+///
+/// Returns `Err(ServerError::Forbidden)` when any authorization engine denies.
+///
+/// # Panics
+///
+/// This function does not panic.
+#[cfg(feature = "enterprise")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
+#[doc(alias = "authz enforcement")]
+pub fn enforce_http_request_authorization(
+    hook: &AuthorizationHook,
+    request: &Request,
+    subject: impl Into<String>,
+    attributes: HashMap<String, String>,
+) -> Result<(), ServerError> {
+    match hook.evaluate_http_request(request, subject, attributes) {
+        AuthorizationDecision::Allow => Ok(()),
+        AuthorizationDecision::Deny(reason) => {
+            Err(ServerError::forbidden(reason))
+        }
+    }
 }
 
 #[cfg(all(test, feature = "enterprise"))]
@@ -1232,5 +1340,48 @@ mod tests {
             .with_engine(RbacAdapter::default());
         let dbg = format!("{hook:?}");
         assert!(dbg.contains("engines_len"));
+    }
+
+    #[test]
+    fn evaluate_http_request_maps_request_to_context() {
+        let auth = AuthorizationHook::new().with_engine(
+            RbacAdapter::default()
+                .grant_role("svc", "reader")
+                .grant_permission("reader", "/metrics", "GET"),
+        );
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/metrics".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+
+        let decision =
+            auth.evaluate_http_request(&request, "svc", HashMap::new());
+        assert_eq!(decision, AuthorizationDecision::Allow);
+    }
+
+    #[test]
+    fn enforce_http_request_authorization_maps_deny_to_forbidden() {
+        let auth = AuthorizationHook::new().with_engine(
+            RbacAdapter::default()
+                .grant_role("svc", "reader")
+                .grant_permission("reader", "/metrics", "GET"),
+        );
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/admin".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+
+        let err = enforce_http_request_authorization(
+            &auth,
+            &request,
+            "svc",
+            HashMap::new(),
+        )
+        .expect_err("authorization should deny");
+        assert!(matches!(err, ServerError::Forbidden(_)));
     }
 }

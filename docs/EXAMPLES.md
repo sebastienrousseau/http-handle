@@ -49,6 +49,7 @@ cargo run --example <name> [--features "..."]
 | Observability setup | `observability` | `feature_observability` |
 | HTTP/2 server path | `http2` | `feature_http2_server` |
 | HTTP/3 profile policy | `http3-profile` | `feature_http3_profile` |
+| Enterprise authorization | `enterprise` | `feature_enterprise_authorization` |
 | Distributed rate limiting | `distributed-rate-limit` | `feature_distributed_rate_limit` |
 | Multi-tenant isolation | `multi-tenant` | `feature_tenant_isolation` |
 | Runtime auto-tune profile | `autotune` | `feature_runtime_autotune` |
