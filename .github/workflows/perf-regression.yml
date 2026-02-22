@@ -32,16 +32,24 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y wrk netcat-openbsd
+          sudo apt-get install -y wrk netcat-openbsd jq
           curl -L --fail --silent "https://github.com/codesenberg/bombardier/releases/download/v1.2.6/bombardier-linux-amd64" -o /tmp/bombardier
           echo "c29be68fb6711434d50d8c25bc5ce08d33d8265871e6e1a518b3775e530fbb9b  /tmp/bombardier" | sha256sum -c -
           install -m 0755 /tmp/bombardier /usr/local/bin/bombardier
       - name: Prebuild benchmark target
         run: cargo build --example benchmark_target --features async,high-perf
+      - name: Ensure benchmark script is executable
+        run: chmod +x ./scripts/perf/benchmark_matrix.sh
       - name: Run benchmark matrix with threshold
         env:
           HTTP_HANDLE_MODE: high-perf
           HTTP_HANDLE_FEATURES: async,high-perf
-          MIN_RPS: "1500"
+          PERF_BASELINE_FILE: scripts/perf/baseline.json
+          PERF_RESULT_JSON: target/perf-result.json
           PERF_USE_PREBUILT: "1"
         run: ./scripts/perf/benchmark_matrix.sh
+      - name: Upload perf result artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: perf-result
+          path: target/perf-result.json

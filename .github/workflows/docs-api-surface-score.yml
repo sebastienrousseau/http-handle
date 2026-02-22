@@ -30,5 +30,8 @@ jobs:
         with:
           toolchain: nightly
 
+      - name: Ensure API docs script is executable
+        run: chmod +x ./scripts/score_docs_api_surface.sh
+
       - name: Run API surface docs gate
         run: ./scripts/score_docs_api_surface.sh

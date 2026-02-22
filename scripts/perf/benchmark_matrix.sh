@@ -11,9 +11,13 @@ FEATURES="${HTTP_HANDLE_FEATURES:-async,high-perf}"
 BOMBARDIER_REQS="${BOMBARDIER_REQS:-20000}"
 BOMBARDIER_C="${BOMBARDIER_C:-64}"
 MIN_RPS="${MIN_RPS:-1500}"
+MIN_RPS_PER_CORE="${MIN_RPS_PER_CORE:-300}"
+MAX_P99_MS="${MAX_P99_MS:-100}"
 READY_RETRIES="${READY_RETRIES:-600}"
 READY_SLEEP_SECS="${READY_SLEEP_SECS:-0.1}"
 PREBUILT_BIN="${PREBUILT_BIN:-target/debug/examples/benchmark_target}"
+BASELINE_FILE="${PERF_BASELINE_FILE:-scripts/perf/baseline.json}"
+RESULT_JSON="${PERF_RESULT_JSON:-target/perf-result.json}"
 
 mkdir -p "${ROOT_DIR}"
 python3 - <<'PY'
@@ -80,10 +84,47 @@ if command -v bombardier >/dev/null 2>&1; then
     echo "Failed to parse bombardier output"
     exit 1
   fi
+  P99_MS=$(echo "$OUT" | awk '/99th/ {gsub("ms","",$2); print $2; exit}')
+  if [[ -z "${P99_MS:-}" ]]; then
+    P99_MS=$(echo "$OUT" | awk '/99\.000%/ {gsub("ms","",$2); print $2; exit}')
+  fi
+  if [[ -z "${P99_MS:-}" ]]; then
+    P99_MS="0"
+  fi
+  if command -v nproc >/dev/null 2>&1; then
+    CORE_COUNT=$(nproc)
+  else
+    CORE_COUNT=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+  fi
+  if [[ -z "${CORE_COUNT:-}" || "${CORE_COUNT}" -lt 1 ]]; then
+    CORE_COUNT=1
+  fi
+  RPS_PER_CORE=$(awk -v rps="$RPS" -v c="$CORE_COUNT" 'BEGIN { printf "%.2f", rps/c }')
+
+  mkdir -p "$(dirname "$RESULT_JSON")"
+  cat >"$RESULT_JSON" <<JSON
+{"rps": $RPS, "p99_latency_ms": $P99_MS, "cores": $CORE_COUNT, "rps_per_core": $RPS_PER_CORE}
+JSON
+  cat "$RESULT_JSON"
+
+  if [[ -f "$BASELINE_FILE" ]]; then
+    MIN_RPS=$(jq -r '.rps_min' "$BASELINE_FILE")
+    MIN_RPS_PER_CORE=$(jq -r '.rps_per_core_min' "$BASELINE_FILE")
+    MAX_P99_MS=$(jq -r '.p99_latency_ms_max' "$BASELINE_FILE")
+  fi
+
   if (( RPS < MIN_RPS )); then
     echo "Performance regression: RPS $RPS < threshold $MIN_RPS"
     exit 1
   fi
+  awk -v v="$RPS_PER_CORE" -v m="$MIN_RPS_PER_CORE" 'BEGIN { if (v < m) { exit 1 } }' || {
+    echo "Performance regression: RPS/core $RPS_PER_CORE < threshold $MIN_RPS_PER_CORE"
+    exit 1
+  }
+  awk -v v="$P99_MS" -v m="$MAX_P99_MS" 'BEGIN { if (v > m) { exit 1 } }' || {
+    echo "Performance regression: p99 ${P99_MS}ms > threshold ${MAX_P99_MS}ms"
+    exit 1
+  }
 else
   echo "bombardier not found; skipping RPS assertion"
 fi

@@ -30,5 +30,7 @@ jobs:
       - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
         with:
           python-version: "3.11"
+      - name: Ensure python style script is executable
+        run: chmod +x ./scripts/enforce_python_style.sh
       - name: Enforce Google Python style
         run: ./scripts/enforce_python_style.sh

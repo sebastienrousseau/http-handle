@@ -1,0 +1,5 @@
+{
+  "p99_latency_ms_max": 100.0,
+  "rps_min": 1500,
+  "rps_per_core_min": 300.0
+}

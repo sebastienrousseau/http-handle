@@ -1,0 +1,38 @@
+name: 🚫 Zero Warnings
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "examples/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/zero-warnings.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-no-warnings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: stable
+      - name: Check with warnings denied
+        env:
+          RUSTFLAGS: -D warnings -D deprecated-in-future
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          set -euo pipefail
+          cargo check --workspace --all-targets --all-features
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo doc --workspace --all-features --no-deps

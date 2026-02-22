@@ -25,5 +25,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Ensure docs script is executable
+        run: chmod +x ./scripts/score_docs.sh
+
       - name: Run docs scoring gate
         run: ./scripts/score_docs.sh
