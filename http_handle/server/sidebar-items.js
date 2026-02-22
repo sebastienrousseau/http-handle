@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Server"]};
+window.SIDEBAR_ITEMS = {"struct":["ConnectionGuard","ConnectionPool","Server","ServerBuilder","ShutdownSignal","ThreadPool"]};

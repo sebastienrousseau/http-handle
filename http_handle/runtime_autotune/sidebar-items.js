@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["detect_host_profile"],"struct":["HostResourceProfile","RuntimeTuneRecommendation"]};

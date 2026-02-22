@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["EnvSecretProvider","StaticSecretProvider","TenantConfig","TenantConfigStore","TenantId","TenantScopedSecrets"],"trait":["SecretProvider"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["process_batch"],"struct":["BatchRequest","BatchResult"]};

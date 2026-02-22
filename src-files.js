@@ -1,3 +1,2 @@
-var srcIndex = new Map(JSON.parse('[["http_handle",["",[],["error.rs","lib.rs","request.rs","response.rs","server.rs"]]]]'));
-createSrcSidebar();
-//{"start":36,"fragment_lengths":[84]}
+createSrcSidebar('[["http_handle",["",[],["async_runtime.rs","async_server.rs","batch.rs","distributed_rate_limit.rs","enterprise.rs","error.rs","http2_server.rs","http3_profile.rs","language.rs","lib.rs","observability.rs","optimized.rs","perf_server.rs","protocol_state.rs","request.rs","response.rs","runtime_autotune.rs","server.rs","streaming.rs","tenant_isolation.rs"]]]]');
+//{"start":19,"fragment_lengths":[357]}

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["error","request","response","server"]};
+window.SIDEBAR_ITEMS = {"mod":["async_runtime","async_server","batch","distributed_rate_limit","enterprise","error","http2_server","http3_profile","language","observability","optimized","perf_server","protocol_state","request","response","runtime_autotune","server","streaming","tenant_isolation"]};

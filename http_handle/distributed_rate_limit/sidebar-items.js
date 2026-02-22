@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["DistributedRateLimiter","InMemoryBackend","MemcachedBackend","RedisBackend"],"trait":["MemcachedClient","RateLimitBackend","RedisClient"]};

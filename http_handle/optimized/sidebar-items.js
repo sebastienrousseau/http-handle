@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["const_content_type_from_ext","detect_language_fast"],"struct":["LanguageSet"]};
