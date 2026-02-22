@@ -95,6 +95,9 @@ Supporting docs:
 - Distributed rate limiting: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md)
 - Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md)
 - Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md)
+- Release transition plan: [`docs/RELEASE_TRANSITION_v0.0.3.md`](docs/RELEASE_TRANSITION_v0.0.3.md)
+- Next milestone execution plan: [`docs/EXECUTION_PLAN_v0.0.4.md`](docs/EXECUTION_PLAN_v0.0.4.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Examples
 
