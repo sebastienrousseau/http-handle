@@ -1,0 +1,49 @@
+name: 🧾 Release Consistency
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/RELEASE_TRANSITION_v0.0.3.md"
+      - ".github/workflows/release-consistency.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Validate version/docs/changelog consistency
+        run: |
+          set -euo pipefail
+          version=$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)
+          if [ -z "${version}" ]; then
+            echo "Unable to parse version from Cargo.toml"
+            exit 1
+          fi
+          echo "Detected version: ${version}"
+
+          grep -q "http-handle = \"${version}\"" README.md || {
+            echo "README installation snippet does not match Cargo.toml version ${version}"
+            exit 1
+          }
+          grep -qi "${version}" CHANGELOG.md || {
+            echo "CHANGELOG does not reference version ${version}"
+            exit 1
+          }
+          grep -q "v${version}" docs/RELEASE_TRANSITION_v0.0.3.md || {
+            echo "Release transition doc does not reference tag v${version}"
+            exit 1
+          }
+
+          echo "Release consistency checks passed."

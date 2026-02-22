@@ -19,20 +19,35 @@ A Rust-based HTTP server for serving static websites.
 </center>
 <!-- markdownlint-enable MD033 MD041 -->
 
-## Overview
+## Architectural Overview
 
-The `http-handle` is a robust Rust library designed for serving static websites. It provides a simple yet efficient HTTP server implementation with features like request parsing, response generation, and basic security measures. The library is not intended to be a full-fledged web server but rather a lightweight solution for serving static files over HTTP for development and testing purposes.
+Use `http-handle` to serve static content fast, then scale to production policies without rewriting your core server path.
 
-## Features
+Follow this critical path:
 
-- **Static File Serving**: Serve static files from a configured document root.
-- **Request Parsing**: Parse incoming HTTP requests with proper error handling.
-- **Response Generation**: Generate appropriate HTTP responses based on requests.
-- **Security Measures**: Prevent directory traversal attacks.
-- **Content Type Detection**: Automatically detect and set appropriate content types for files.
-- **Customizable 404 Handling**: Support for custom 404 error pages.
-- **Threaded Connections**: Handle multiple connections concurrently using threads.
-- **Configurable Server**: Easy configuration of server address and document root.
+1. Build and configure a server (`Server` / `ServerBuilder`).
+2. Parse incoming HTTP requests into typed request data.
+3. Generate and emit policy-aware HTTP responses.
+
+## Feature List
+
+- **Core Serving**: Static file routing, MIME detection, custom 404 pages, and request/response primitives.
+- **Operational Safety**: Directory traversal protection, graceful shutdown, and configurable timeout handling.
+- **Performance Paths**: Sync + async serving, precompressed asset negotiation (`br` / `gzip` / `zstd`), and high-performance runtime mode.
+- **Protocol Growth**: HTTP/2 support and HTTP/3 profile/fallback policy primitives.
+- **Enterprise Controls**: TLS/mTLS policy, API key/JWT auth hooks, RBAC/ABAC adapters, and runtime config reload patterns.
+- **Scale Features**: Distributed rate limiting, tenant isolation, observability hooks, and runtime auto-tuning.
+
+## Platform Support Matrix
+
+`http-handle` is validated with portability conformance tests and CI coverage across Unix-like targets.
+
+| Platform | Status | Notes |
+|---|---|---|
+| macOS | Supported | Primary development workflow and CI coverage. |
+| Linux | Supported | Production target for deployments and containers (validated on Ubuntu CI; Debian-compatible runtime assumptions). |
+| Windows (MSVC) | Supported | Tier-1 target in the portability policy and CI matrix. |
+| WSL (Windows Subsystem for Linux) | Supported | Uses Linux target behavior in WSL runtime. |
 
 ## Installation
 
@@ -40,52 +55,67 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.2"
+http-handle = "0.0.3"
 ```
 
-## Usage
+## Quick Start
 
-Here's a basic example of how to use `http-handle`:
+Start with `Server::new`. Move to `ServerBuilder` when you need explicit policy controls.
 
-```rust
+```rust,no_run
 use http_handle::Server;
-use std::thread;
-use std::time::Duration;
 
 fn main() -> std::io::Result<()> {
-    // Create a new server with an address and document root
     let server = Server::new("127.0.0.1:8080", "./public");
-
-    // Run the server in a separate thread so it doesn't block
-    let server_handle = thread::spawn(move || {
-        server.start().expect("Server failed to start");
-    });
-
-    // Let the server run for 2 seconds before shutting it down
-    thread::sleep(Duration::from_secs(2));
-
-    println!("Server has been running for 2 seconds, shutting down...");
-    
-    // In a real-world scenario, you would need to implement a proper shutdown signal
-    // This just exits the program after the duration.
-    
-    Ok(())
+    server.start()
 }
 ```
 
-This will start a server listening on `127.0.0.1:8080`, serving files from the `./public` directory.
+The server listens on `127.0.0.1:8080` and serves files from `./public`.
 
 ## Documentation
 
-For full API documentation, please visit [docs.rs/http-handle][04].
+Primary API docs: [docs.rs/http-handle][04]  
+GitHub Pages mirror: <https://sebastienrousseau.github.io/http-handle/>
+
+Local docs rendering (with docs.rs feature-gate badges):
+
+```bash
+RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --open --all-features
+```
+
+Supporting docs:
+- Portability matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md)
+- Protocol support: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md)
+- Tutorials: [`docs/TUTORIALS.md`](docs/TUTORIALS.md)
+- Architecture diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Benchmark reproducibility: [`docs/BENCHMARK_REPRODUCIBILITY.md`](docs/BENCHMARK_REPRODUCIBILITY.md)
+- Supply chain and scorecard policy: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md), [`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md)
+- Container hardening: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md)
+- Distributed rate limiting: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md)
+- Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md)
+- Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md)
+- Release transition plan: [`docs/RELEASE_TRANSITION_v0.0.3.md`](docs/RELEASE_TRANSITION_v0.0.3.md)
+- Next milestone execution plan: [`docs/EXECUTION_PLAN_v0.0.4.md`](docs/EXECUTION_PLAN_v0.0.4.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Examples
 
-To explore more examples, clone the repository and run the following command:
+Run any example:
 
 ```shell
 cargo run --example example_name
 ```
+
+Start with these examples:
+- `server_example`: Build a server and serve a document root.
+- `server_builder_example`: Apply headers, CORS, and timeout policies.
+- `feature_async_server`: Run the async accept path.
+- `feature_http2_server`: Start the HTTP/2 path behind the `http2` feature.
+- `feature_enterprise_authorization`: Enforce RBAC authorization for an HTTP request.
+- `feature_runtime_autotune`: Derive runtime limits from host profile.
+
+Examples index: [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
 
 ## Contributing
 
@@ -93,12 +123,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under either of
-
-- [Apache License, Version 2.0][10]
-- [MIT license][11]
-
-at your option.
+This project is licensed under the [GNU Affero General Public License v3.0][10].
 
 ## Acknowledgements
 
@@ -114,13 +139,12 @@ Special thanks to all contributors who have helped build the `http-handle` libra
 [07]: https://github.com/sebastienrousseau/http-handle/actions?query=branch%3Amain
 [08]: https://www.rust-lang.org/
 [09]: https://github.com/sebastienrousseau/http-handle
-[10]: https://www.apache.org/licenses/LICENSE-2.0
-[11]: https://opensource.org/licenses/MIT
+[10]: https://www.gnu.org/licenses/agpl-3.0.en.html
 
 [build-badge]: https://img.shields.io/github/actions/workflow/status/sebastienrousseau/http-handle/release.yml?branch=main&style=for-the-badge&logo=github
 [codecov-badge]: https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&token=OOnQTi8yIQ&logo=codecov
 [crates-badge]: https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust
 [docs-badge]: https://img.shields.io/badge/docs.rs-http--handle-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs
 [github-badge]: https://img.shields.io/badge/github-sebastienrousseau/http--handle-8da0cb?style=for-the-badge&labelColor=555555&logo=github
-[libs-badge]: https://img.shields.io/badge/lib.rs-v0.0.2-orange.svg?style=for-the-badge
+[libs-badge]: https://img.shields.io/badge/lib.rs-http--handle-orange.svg?style=for-the-badge
 [made-with-rust]: https://img.shields.io/badge/rust-f04041?style=for-the-badge&labelColor=c0282d&logo=rust

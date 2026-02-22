@@ -1,47 +1,35 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 // src/response.rs
 
-//! HTTP Response module for handling and sending server responses.
+//! HTTP response construction and serialization.
 //!
-//! This module defines the `Response` struct, which represents an HTTP response
-//! sent from the server to a client. The `Response` struct includes the status code,
-//! status text, headers, and body of the response. It provides functionality for creating
-//! and sending HTTP responses over a stream that implements the `Write` trait.
-//!
-//! The main components and methods of this module include:
-//!
-//! - `Response`: Represents an HTTP response, containing status code, headers, and body.
-//! - `Response::new`: Creates a new `Response` instance.
-//! - `Response::add_header`: Adds custom headers to the response.
-//! - `Response::send`: Sends the response over a writable stream (e.g., a network socket).
-//!
-//! This module integrates error handling via the `ServerError` type, ensuring that issues
-//! with sending the response or writing to the stream are properly captured and handled.
-//!
-//! # Example
-//!
-//! ```rust
-//! use http_handle::response::Response;
-//! use std::io::Cursor;
-//!
-//! let mut response = Response::new(200, "OK", b"Hello, world!".to_vec());
-//! response.add_header("Content-Type", "text/plain");
-//!
-//! let mut mock_stream = Cursor::new(Vec::new());
-//! response.send(&mut mock_stream).unwrap();
-//!
-//! let written_data = mock_stream.into_inner();
-//! assert!(written_data.starts_with(b"HTTP/1.1 200 OK\r\n"));
-//! ```
-//!
-//! This module is responsible for creating and formatting the HTTP status line, headers,
-//! and body before sending it to the client over a stream, ensuring compliance with the
-//! HTTP/1.1 protocol.
+//! Use this module to build status lines, headers, and body payloads and emit them to any
+//! writable stream with stable HTTP/1.1 framing defaults.
 
 use crate::error::ServerError;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 
-/// Represents an HTTP response, including the status code, status text, headers, and body.
+/// Represents an HTTP response payload and metadata.
+///
+/// You create this type on the response path, add headers, and serialize it to any
+/// `Write` sink (for example `TcpStream` or an in-memory buffer in tests).
+///
+/// # Examples
+///
+/// ```rust
+/// use http_handle::response::Response;
+///
+/// let response = Response::new(200, "OK", b"hello".to_vec());
+/// assert_eq!(response.status_code, 200);
+/// ```
+///
+/// # Panics
+///
+/// This type does not panic on construction.
+#[doc(alias = "http response")]
 #[derive(
     Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
 )]
@@ -61,7 +49,7 @@ pub struct Response {
 }
 
 impl Response {
-    /// Creates a new `Response` with the given status code, status text, and body.
+    /// Creates a response with status, reason, and body bytes.
     ///
     /// The headers are initialized as an empty list and can be added later using the `add_header` method.
     ///
@@ -71,9 +59,19 @@ impl Response {
     /// * `status_text` - The status text corresponding to the status code.
     /// * `body` - The body of the response, represented as a vector of bytes.
     ///
-    /// # Returns
+    /// # Examples
     ///
-    /// A new `Response` instance with the specified status code, status text, and body.
+    /// ```rust
+    /// use http_handle::response::Response;
+    ///
+    /// let response = Response::new(204, "NO CONTENT", Vec::new());
+    /// assert_eq!(response.status_code, 204);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "constructor")]
     pub fn new(
         status_code: u16,
         status_text: &str,
@@ -92,10 +90,20 @@ impl Response {
     /// This method allows you to add custom headers to the response, which will be included
     /// in the HTTP response when it is sent to the client.
     ///
-    /// # Arguments
+    /// # Examples
     ///
-    /// * `name` - The name of the header (e.g., "Content-Type").
-    /// * `value` - The value of the header (e.g., "text/html").
+    /// ```rust
+    /// use http_handle::response::Response;
+    ///
+    /// let mut response = Response::new(200, "OK", Vec::new());
+    /// response.add_header("Content-Type", "text/plain");
+    /// assert_eq!(response.headers.len(), 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function does not panic.
+    #[doc(alias = "set header")]
     pub fn add_header(&mut self, name: &str, value: &str) {
         self.headers.push((name.to_string(), value.to_string()));
     }
@@ -109,14 +117,36 @@ impl Response {
     ///
     /// * `stream` - A mutable reference to any stream that implements `Write`.
     ///
-    /// # Returns
+    /// # Examples
     ///
-    /// * `Ok(())` - If the response is successfully sent.
-    /// * `Err(ServerError)` - If an error occurs while sending the response.
+    /// ```rust
+    /// use http_handle::response::Response;
+    /// use std::io::Cursor;
+    ///
+    /// let mut response = Response::new(200, "OK", b"hello".to_vec());
+    /// response.add_header("Content-Type", "text/plain");
+    ///
+    /// let mut out = Cursor::new(Vec::<u8>::new());
+    /// response.send(&mut out).expect("response write should succeed");
+    /// assert!(!out.get_ref().is_empty());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when writing headers or body to the output stream fails.
+    ///
+    /// # Panics
+    ///
+    /// This function does not intentionally panic.
+    #[doc(alias = "serialize")]
+    #[doc(alias = "write response")]
     pub fn send<W: Write>(
         &self,
         stream: &mut W,
     ) -> Result<(), ServerError> {
+        let mut has_content_length = false;
+        let mut has_connection = false;
+
         write!(
             stream,
             "HTTP/1.1 {} {}\r\n",
@@ -124,7 +154,20 @@ impl Response {
         )?;
 
         for (name, value) in &self.headers {
+            if name.eq_ignore_ascii_case("content-length") {
+                has_content_length = true;
+            }
+            if name.eq_ignore_ascii_case("connection") {
+                has_connection = true;
+            }
             write!(stream, "{}: {}\r\n", name, value)?;
+        }
+
+        if !has_content_length {
+            write!(stream, "Content-Length: {}\r\n", self.body.len())?;
+        }
+        if !has_connection {
+            write!(stream, "Connection: close\r\n")?;
         }
 
         write!(stream, "\r\n")?;
@@ -207,7 +250,7 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let expected_output = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
+        let expected_output = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, world!";
         let written_data = mock_stream.get_written_data();
 
         assert_eq!(written_data, expected_output);
@@ -224,7 +267,7 @@ mod tests {
 
         impl Write for FailingStream {
             fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-                Err(io::Error::new(io::ErrorKind::Other, "write error"))
+                Err(io::Error::other("write error"))
             }
 
             fn flush(&mut self) -> io::Result<()> {
@@ -234,6 +277,7 @@ mod tests {
 
         let mut failing_stream = FailingStream;
         let result = response.send(&mut failing_stream);
+        failing_stream.flush().expect("flush");
 
         assert!(result.is_err());
     }

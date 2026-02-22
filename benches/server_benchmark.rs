@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0 OR MIT
-// See LICENSE-APACHE.md and LICENSE-MIT.md in the repository root for full license information.
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
 
 #![allow(missing_docs)]
 
@@ -16,11 +16,10 @@
 //! - A TCP client sends an HTTP request to fetch the HTML file, and the server responds.
 //! - The benchmark measures the time taken to process the request and receive the response.
 
-use criterion::{
-    black_box, criterion_group, criterion_main, Criterion,
-};
+use criterion::{Criterion, criterion_group, criterion_main};
 use http_handle::Server;
 use std::fs::File;
+use std::hint::black_box;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};

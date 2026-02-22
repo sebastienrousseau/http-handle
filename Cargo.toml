@@ -6,11 +6,11 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.2"                           # Initial version of the crate
+version = "0.0.3"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
-edition = "2021"                            # Rust edition being used (2021 edition is the latest stable)
-rust-version = "1.56.0"                     # Minimum supported Rust version
-license = "MIT OR Apache-2.0"               # Dual licensing strategy for MIT and Apache-2.0
+edition = "2024"                            # Rust edition
+rust-version = "1.87.0"                     # Minimum supported Rust version
+license = "AGPL-3.0-only"                   # Project license
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
 """                                         # Short library description
@@ -26,11 +26,23 @@ build = "build.rs"                          # Path to the build script (optional
 [dependencies]
 # Required dependencies for building and running the project.
 thiserror = "2.0"                           # Error handling library for defining custom errors
-anyhow = "1.0"                              # Error handling for context propagation
 serde = { version = "1.0", features = ["derive"] } # Serialization/deserialization with derive features
 serde_json = "1.0"                          # JSON support with Serde
 log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
+commons = { git = "https://github.com/sebastienrousseau/commons", tag = "v0.0.1", default-features = false, features = ["error", "logging", "time"] }
+ctrlc = "3.4"                               # Signal handling for graceful shutdown
+regex = "1.11"                              # Runtime custom language pattern support
+tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
+tracing = { version = "0.1", optional = true }     # Structured logging
+tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] } # Tracing subscriber
+h2 = { version = "0.4", optional = true }          # HTTP/2 protocol support
+http = { version = "1.3", optional = true }        # HTTP type definitions for h2
+bytes = { version = "1.10", optional = true }      # Zero-copy byte buffers for h2 body frames
+libc = { version = "0.2", optional = true }        # Unix sendfile support
+notify = { version = "8.2", optional = true }      # Config hot-reload file watcher
+arc-swap = { version = "1.7", optional = true }    # Lock-free hot config swaps
+toml = { version = "0.9", optional = true }        # Profile config loading
 
 # -----------------------------------------------------------------------------
 # Library Configuration
@@ -55,7 +67,8 @@ version_check = "0.9"                       # Ensures that a compatible Rust ver
 tempfile = "3.13"                            # Temporary file creation for tests
 assert_fs = "1.1"                           # File system assertion library for tests
 predicates = "3.1"                          # Predicate assertions for test conditions
-criterion = "0.5"                           # Benchmarking library to test performance
+criterion = "0.8"                           # Benchmarking library to test performance
+proptest = "1.6"                            # Property-based testing
 
 # -----------------------------------------------------------------------------
 # Examples
@@ -72,8 +85,13 @@ path = "examples/error_example.rs"          # Path to the example file
 
 [[example]]
 # Example code demonstrating the library as a library.
-name = "lib_example"                        # Name of the example
-path = "examples/lib_example.rs"            # Path to the example file
+name = "full_demo"                          # Name of the example
+path = "examples/full_demo.rs"              # Path to the example file
+
+[[example]]
+# Legacy library example preserved from earlier revisions.
+name = "lib_example_legacy"                 # Name of the example
+path = "examples/lib_example_legacy.rs"     # Path to the example file
 
 [[example]]
 # Example code demonstrating request handling.
@@ -89,6 +107,103 @@ path = "examples/response_example.rs"      # Path to the example file
 # Example code demonstrating server handling.
 name = "server_example"                    # Name of the example
 path = "examples/server_example.rs"        # Path to the example file
+
+[[example]]
+# Example code demonstrating graceful shutdown.
+name = "graceful_shutdown_example"         # Name of the example
+path = "examples/graceful_shutdown_example.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating ServerBuilder pattern usage.
+name = "server_builder_example"            # Name of the example
+path = "examples/server_builder_example.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating language detection with custom patterns.
+name = "feature_language_detection"        # Name of the example
+path = "examples/feature_language_detection.rs" # Path to the example file
+
+[[example]]
+# Example code demonstrating concurrent batch processing.
+name = "feature_batch_processing"          # Name of the example
+path = "examples/feature_batch_processing.rs" # Path to the example file
+required-features = ["batch"]              # Only build when batch is enabled
+
+[[example]]
+# Example code demonstrating chunked file streaming.
+name = "feature_streaming_chunks"          # Name of the example
+path = "examples/feature_streaming_chunks.rs" # Path to the example file
+required-features = ["streaming"]          # Only build when streaming is enabled
+
+[[example]]
+# Example code demonstrating optimized lookup helpers.
+name = "feature_optimized_lookups"         # Name of the example
+path = "examples/feature_optimized_lookups.rs" # Path to the example file
+required-features = ["optimized"]          # Only build when optimized is enabled
+
+[[example]]
+# Example code demonstrating observability initialization.
+name = "feature_observability"             # Name of the example
+path = "examples/feature_observability.rs" # Path to the example file
+required-features = ["observability"]      # Only build when observability is enabled
+
+[[example]]
+# Example code demonstrating async runtime helper.
+name = "feature_async_runtime"             # Name of the example
+path = "examples/feature_async_runtime.rs" # Path to the example file
+required-features = ["async"]              # Only build when async is enabled
+
+[[example]]
+# Example code demonstrating async server startup.
+name = "feature_async_server"              # Name of the example
+path = "examples/feature_async_server.rs"  # Path to the example file
+required-features = ["async"]              # Only build when async is enabled
+
+[[example]]
+# Example code demonstrating HTTP/2 server startup.
+name = "feature_http2_server"              # Name of the example
+path = "examples/feature_http2_server.rs"  # Path to the example file
+required-features = ["http2"]              # Only build when HTTP/2 is enabled
+
+[[example]]
+# Example code demonstrating HTTP/3 ALPN profile and fallback policy.
+name = "feature_http3_profile"             # Name of the example
+path = "examples/feature_http3_profile.rs" # Path to the example file
+required-features = ["http3-profile"]      # Only build when HTTP/3 profile is enabled
+
+[[example]]
+# Example code demonstrating distributed rate limiting adapters.
+name = "feature_distributed_rate_limit"    # Name of the example
+path = "examples/feature_distributed_rate_limit.rs" # Path to the example file
+required-features = ["distributed-rate-limit"] # Only build when distributed rate limiting is enabled
+
+[[example]]
+# Example code demonstrating tenant isolation and secret providers.
+name = "feature_tenant_isolation"          # Name of the example
+path = "examples/feature_tenant_isolation.rs" # Path to the example file
+required-features = ["multi-tenant"]       # Only build when multi-tenant isolation is enabled
+
+[[example]]
+# Example code demonstrating runtime auto-tuning.
+name = "feature_runtime_autotune"          # Name of the example
+path = "examples/feature_runtime_autotune.rs" # Path to the example file
+required-features = ["autotune"]           # Only build when autotune is enabled
+
+[[example]]
+# Example code demonstrating enterprise authorization policies.
+name = "feature_enterprise_authorization"  # Name of the example
+path = "examples/feature_enterprise_authorization.rs" # Path to the example file
+required-features = ["enterprise"]         # Only build when enterprise is enabled
+
+[[example]]
+# Example code demonstrating practical server policy configuration.
+name = "scenario_server_policies"          # Name of the example
+path = "examples/scenario_server_policies.rs" # Path to the example file
+
+[[example]]
+# Benchmark target binary for external load tools.
+name = "benchmark_target"                  # Name of the example
+path = "examples/benchmark_target.rs"      # Path to the example file
 
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
@@ -108,7 +223,21 @@ debug = true                                # Include debug symbols for better d
 [features]
 # Optional features that can be enabled or disabled.
 default = []                                # No default features enabled
-async = []                                  # Placeholder for future asynchronous feature support
+async = ["dep:tokio"]                       # Async runtime and hardened blocking helper
+batch = []                                  # Concurrent batch processing APIs
+streaming = []                              # Chunked streaming APIs
+optimized = []                              # Zero-cost optimized lookups
+observability = ["dep:tracing", "dep:tracing-subscriber"] # Structured tracing/observability
+http2 = ["dep:tokio", "dep:h2", "dep:http", "dep:bytes"] # HTTP/2 server foundation (h2c)
+high-perf = ["dep:tokio", "dep:libc"]      # Async-first serving with backpressure and sendfile fast path
+tls = []                                    # TLS and mTLS configuration primitives
+auth = []                                   # Auth middleware (API key + JWT parsing hook)
+config = ["dep:notify", "dep:arc-swap", "dep:toml"] # Runtime profiles + hot reload
+enterprise = ["tls", "auth", "config", "observability"] # Enterprise-ready integrations
+http3-profile = []                          # HTTP/3 production profile and ALPN fallback helpers
+distributed-rate-limit = []                 # Distributed rate-limit backends and adapters
+multi-tenant = []                           # Tenant-isolated config and secret providers
+autotune = ["high-perf"]                    # Runtime auto-tuning for host resource profiles
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration
@@ -117,7 +246,7 @@ async = []                                  # Placeholder for future asynchronou
 # Settings for building and hosting documentation on docs.rs.
 all-features = true                         # Build documentation with all features enabled
 rustdoc-args = ["--cfg", "docsrs"]          # Arguments passed to `rustdoc` when building the documentation
-targets = ["x86_64-unknown-linux-gnu"]      # Default target platform for the docs
+targets = ["x86_64-apple-darwin", "x86_64-unknown-linux-gnu"] # Publish docs metadata for macOS + Linux
 
 # -----------------------------------------------------------------------------
 # Linting Configuration
@@ -127,7 +256,7 @@ targets = ["x86_64-unknown-linux-gnu"]      # Default target platform for the do
 
 ## Warnings
 missing_copy_implementations = "warn"       # Warn if types can implement `Copy` but don’t
-missing_docs = "warn"                       # Warn if public items lack documentation
+missing_docs = "deny"                       # Deny if public items lack documentation
 unstable_features = "warn"                  # Warn on the usage of unstable features
 unused_extern_crates = "warn"               # Warn about unused external crates
 unused_results = "warn"                     # Warn if a result type is unused (e.g., errors ignored)
@@ -154,10 +283,10 @@ future_incompatible = { level = "deny", priority = -1 } # Handle future compatib
 keyword_idents = { level = "deny", priority = -1 }      # Deny usage of keywords as identifiers
 macro_use_extern_crate = "deny"             # Deny macro use of `extern crate`
 meta_variable_misuse = "deny"               # Deny misuse of meta variables in macros
-missing_fragment_specifier = "deny"         # Deny missing fragment specifiers in macros
 noop_method_call = "deny"                   # Deny method calls that have no effect
 rust_2018_idioms = { level = "deny", priority = -1 }    # Enforce Rust 2018 idioms
 rust_2021_compatibility = { level = "deny", priority = -1 } # Enforce Rust 2021 compatibility
+rust_2024_compatibility = { level = "deny", priority = -1 } # Enforce Rust 2024 compatibility
 single_use_lifetimes = "deny"               # Deny lifetimes that are used only once
 trivial_casts = "deny"                      # Deny trivial casts (e.g., `as` when unnecessary)
 trivial_numeric_casts = "deny"              # Deny trivial numeric casts (e.g., `i32` to `i64`)

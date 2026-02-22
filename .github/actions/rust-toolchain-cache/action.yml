@@ -1,0 +1,19 @@
+name: Rust Toolchain + Cache
+description: Install a Rust toolchain and restore/save Cargo cache.
+
+inputs:
+  toolchain:
+    description: "Rust toolchain (for example: stable, nightly, 1.87.0)."
+    required: false
+    default: stable
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable action release
+      with:
+        toolchain: ${{ inputs.toolchain }}
+
+    - name: Rust cache
+      uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2

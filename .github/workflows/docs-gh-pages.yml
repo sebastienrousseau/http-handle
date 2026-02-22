@@ -1,0 +1,50 @@
+name: Docs GH Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish-docs:
+    name: Publish rustdoc to gh-pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup nightly Rust + cache
+        uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: nightly
+
+      - name: Build docs (docs.rs-style)
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        run: cargo +nightly doc --all-features --no-deps
+
+      - name: Add root redirect and .nojekyll
+        run: |
+          set -euo pipefail
+          CRATE_DOC_DIR="target/doc/http_handle"
+          cp "${CRATE_DOC_DIR}/index.html" target/doc/index.html
+          touch target/doc/.nojekyll
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@e9c66a37f080288a11235e32cbe2dc5fb3a679cc # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: target/doc
+          publish_branch: gh-pages

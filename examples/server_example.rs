@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! # HTTP Server Example
 //!
 //! This example demonstrates how to use the `Server` struct from the `http-handle` library
@@ -18,16 +21,16 @@
 //! cargo run --example server_example
 //! ```
 
-use http_handle::request::Request;
 use http_handle::ServerError;
+use http_handle::request::Request;
 use std::fs;
 use std::io::Result;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::Duration;

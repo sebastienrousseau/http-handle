@@ -1,0 +1,45 @@
+name: 🏗️ Architecture Guardrails
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - ".github/workflows/architecture.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - ".github/workflows/architecture.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Ensure architecture scripts are executable
+        run: |
+          chmod +x ./scripts/validate_architecture_independence.sh
+          chmod +x ./scripts/enforce_naming_conventions.sh
+      - name: Verify module boundaries
+        run: |
+          set -euo pipefail
+          ./scripts/validate_architecture_independence.sh
+      - name: Enforce naming conventions
+        run: |
+          set -euo pipefail
+          ./scripts/enforce_naming_conventions.sh

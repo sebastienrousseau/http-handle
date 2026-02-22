@@ -1,0 +1,43 @@
+name: SLSA Provenance Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/release-artifacts.yml"
+      - ".github/workflows/slsa-verification.yml"
+      - "docs/SLSA_POLICY.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-enforcement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Enforce provenance policy in release workflow
+        run: |
+          set -euo pipefail
+          release_wf=".github/workflows/release-artifacts.yml"
+          sbom_wf=".github/workflows/sbom-attestation.yml"
+
+          for wf in "$release_wf" "$sbom_wf"; do
+            grep -q "actions/attest-build-provenance@" "$wf" || { echo "Missing attest-build-provenance step in $wf"; exit 1; }
+            grep -q "id-token: write" "$wf" || { echo "Missing id-token: write permission in $wf"; exit 1; }
+            grep -q "attestations: write" "$wf" || { echo "Missing attestations: write permission in $wf"; exit 1; }
+
+            while IFS= read -r uses_line; do
+              ref="${uses_line##*@}"
+              if ! [[ "$ref" =~ ^[0-9a-f]{40}([[:space:]]*#.*)?$ ]]; then
+                echo "Unpinned action reference in $wf: $uses_line"
+                exit 1
+              fi
+            done < <(grep -E "^[[:space:]]+uses:" "$wf")
+          done
+
+          echo "SLSA policy checks passed."

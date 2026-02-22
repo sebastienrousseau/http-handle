@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Sebastien Rousseau
+
 //! # HTTP Request Example
 //!
 //! This example demonstrates how to use the `Request` struct from the `http-handle` library
@@ -17,8 +20,8 @@
 //! cargo run --example request_example
 //! ```
 
-use http_handle::request::Request;
 use http_handle::ServerError;
+use http_handle::request::Request;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -47,7 +50,9 @@ fn main() -> Result<(), ServerError> {
         match stream {
             Ok(stream) => {
                 handle_client(stream)?;
-                println!("🛑 Shutting down after handling the first request.");
+                println!(
+                    "🛑 Shutting down after handling the first request."
+                );
             }
             Err(e) => {
                 println!("❌ Failed to accept connection: {}", e);

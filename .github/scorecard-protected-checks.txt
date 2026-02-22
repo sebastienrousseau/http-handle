@@ -1,0 +1,7 @@
+# OSSF Scorecard checks that must remain warning/error-free on pull requests.
+# Any warning or error for these checks fails CI unless explicitly allow-listed.
+Token-Permissions
+Pinned-Dependencies
+Dangerous-Workflow
+Branch-Protection
+Code-Review
