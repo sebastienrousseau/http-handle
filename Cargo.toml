@@ -42,7 +42,7 @@ bytes = { version = "1.10", optional = true }      # Zero-copy byte buffers for 
 libc = { version = "0.2", optional = true }        # Unix sendfile support
 notify = { version = "8.2", optional = true }      # Config hot-reload file watcher
 arc-swap = { version = "1.7", optional = true }    # Lock-free hot config swaps
-toml = { version = "0.9", optional = true }        # Profile config loading
+toml = { version = "1.0", optional = true }        # Profile config loading
 
 # -----------------------------------------------------------------------------
 # Library Configuration
