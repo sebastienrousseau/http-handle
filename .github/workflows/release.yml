@@ -23,7 +23,8 @@ jobs:
       - uses: ./.github/actions/rust-toolchain-cache
         with:
           toolchain: stable
-      - name: Validate publish readiness (no publish)
+      - name: Validate release readiness (build + tests)
         run: |
           set -euo pipefail
-          cargo package --all-features --allow-dirty
+          cargo check --all-features --locked
+          cargo test --all-features --locked --lib --tests --bins
