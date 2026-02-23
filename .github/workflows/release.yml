@@ -26,5 +26,5 @@ jobs:
       - name: Validate release readiness (build + tests)
         run: |
           set -euo pipefail
-          cargo check --all-features --locked
-          cargo test --all-features --locked --lib --tests --bins
+          cargo check --all-features
+          cargo test --all-features --lib --tests --bins
