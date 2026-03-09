@@ -41,6 +41,34 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+      - name: Upload artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4
+        with:
+          sarif_file: results.sarif
+
+  enforce-threshold:
+    name: Enforce Scorecard threshold policy
+    runs-on: ubuntu-latest
+    needs: analysis
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Run analysis for policy enforcement
+        uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75731b0186 # v2.4.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false
       - name: Enforce Scorecard threshold policy
         run: |
           set -euo pipefail
@@ -97,12 +125,3 @@ jobs:
             exit 1
           fi
           echo "Scorecard threshold policy passed."
-      - name: Upload artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: scorecard-sarif
-          path: results.sarif
-      - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e # v4
-        with:
-          sarif_file: results.sarif
