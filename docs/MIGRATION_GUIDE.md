@@ -2,6 +2,27 @@
 
 This guide tracks migration steps between `http-handle` release lines.
 
+## 0.0.3 -> 0.0.4
+
+### What Changed
+- Release publication is now anchored to the merged `main` state from PR #81.
+- Documentation and release notes were synchronized for the new release tag.
+
+### Migration Steps
+1. Update dependency:
+
+```toml
+[dependencies]
+http-handle = "0.0.4"
+```
+
+2. Re-run validation gates:
+
+```bash
+cargo check --all-features
+cargo test --all-features
+```
+
 ## 0.0.2 -> 0.0.3
 
 ### What Changed

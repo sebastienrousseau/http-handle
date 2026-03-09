@@ -55,7 +55,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.3"
+http-handle = "0.0.4"
 ```
 
 Minimum supported Rust version (MSRV): `1.88.0`.
@@ -113,7 +113,7 @@ Supporting docs:
 
 ## Release Publication
 
-`crates.io` publishing is tag-driven. After merge to `main`, publish by pushing a `v*` tag (for example `v0.0.3`) or by manually running the publish workflow.
+`crates.io` publishing is tag-driven. After merge to `main`, publish by pushing a `v*` tag (for example `v0.0.4`) or by manually running the publish workflow.
 
 ## Examples
 
