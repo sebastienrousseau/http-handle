@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.0.4] - 2026-03-09
+
+### Changed
+- Release commit aligned to current `main` after PR #81 merge.
+- Crate publication flow finalized through tag-driven `publish-crates` workflow.
+
 ## [0.0.3] - 2026-02-22
 
 ### Added
@@ -27,4 +33,3 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ### Added
 - Initial baseline features and project scaffolding for static HTTP serving and core request/response handling.
-
