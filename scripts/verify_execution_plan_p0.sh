@@ -18,7 +18,7 @@ expect_grep() {
       return 0
     fi
   else
-    if PATTERN="${pattern}" perl -ne 'BEGIN { $p = $ENV{"PATTERN"} } exit 0 if /$p/; END { exit 1 }' "${file}"; then
+    if PATTERN="${pattern}" perl -ne 'BEGIN { $p = $ENV{"PATTERN"}; $found = 0 } $found = 1 if /$p/; END { exit($found ? 0 : 1) }' "${file}"; then
       return 0
     fi
   fi
