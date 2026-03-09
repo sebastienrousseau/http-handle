@@ -797,10 +797,10 @@
 <a href=#797 id=797 data-nosnippet>797</a>    <span class="kw">fn </span>trigger_shutdown_from_slot(
 <a href=#798 id=798 data-nosnippet>798</a>        slot: <span class="kw-2">&amp;</span>Mutex&lt;<span class="prelude-ty">Option</span>&lt;Arc&lt;ShutdownSignal&gt;&gt;&gt;,
 <a href=#799 id=799 data-nosnippet>799</a>    ) {
-<a href=#800 id=800 data-nosnippet>800</a>        <span class="kw">if let </span><span class="prelude-val">Ok</span>(guard) = slot.lock() {
-<a href=#801 id=801 data-nosnippet>801</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(shutdown_signal) = guard.as_ref() {
-<a href=#802 id=802 data-nosnippet>802</a>                shutdown_signal.shutdown();
-<a href=#803 id=803 data-nosnippet>803</a>            }
+<a href=#800 id=800 data-nosnippet>800</a>        <span class="kw">if let </span><span class="prelude-val">Ok</span>(guard) = slot.lock()
+<a href=#801 id=801 data-nosnippet>801</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(shutdown_signal) = guard.as_ref()
+<a href=#802 id=802 data-nosnippet>802</a>        {
+<a href=#803 id=803 data-nosnippet>803</a>            shutdown_signal.shutdown();
 <a href=#804 id=804 data-nosnippet>804</a>        }
 <a href=#805 id=805 data-nosnippet>805</a>    }
 <a href=#806 id=806 data-nosnippet>806</a>
@@ -1113,12 +1113,12 @@
 <a href=#1113 id=1113 data-nosnippet>1113</a>            </span>{
 <a href=#1114 id=1114 data-nosnippet>1114</a>                <span class="kw">return </span>generate_metrics_response();
 <a href=#1115 id=1115 data-nosnippet>1115</a>            }
-<a href=#1116 id=1116 data-nosnippet>1116</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(ip) = peer_ip {
-<a href=#1117 id=1117 data-nosnippet>1117</a>                <span class="kw">if </span>is_rate_limited(server, ip) {
-<a href=#1118 id=1118 data-nosnippet>1118</a>                    <span class="kw">let _ </span>= METRIC_RATE_LIMITED
-<a href=#1119 id=1119 data-nosnippet>1119</a>                        .fetch_add(<span class="number">1</span>, Ordering::Relaxed);
-<a href=#1120 id=1120 data-nosnippet>1120</a>                    <span class="kw">return </span>generate_too_many_requests_response();
-<a href=#1121 id=1121 data-nosnippet>1121</a>                }
+<a href=#1116 id=1116 data-nosnippet>1116</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(ip) = peer_ip
+<a href=#1117 id=1117 data-nosnippet>1117</a>                &amp;&amp; is_rate_limited(server, ip)
+<a href=#1118 id=1118 data-nosnippet>1118</a>            {
+<a href=#1119 id=1119 data-nosnippet>1119</a>                <span class="kw">let _ </span>=
+<a href=#1120 id=1120 data-nosnippet>1120</a>                    METRIC_RATE_LIMITED.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
+<a href=#1121 id=1121 data-nosnippet>1121</a>                <span class="kw">return </span>generate_too_many_requests_response();
 <a href=#1122 id=1122 data-nosnippet>1122</a>            }
 <a href=#1123 id=1123 data-nosnippet>1123</a>            build_response_for_request_with_metrics(server, <span class="kw-2">&amp;</span>request)
 <a href=#1124 id=1124 data-nosnippet>1124</a>        }
