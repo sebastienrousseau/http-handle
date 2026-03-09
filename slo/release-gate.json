@@ -1,0 +1,7 @@
+{
+  "availability_percent_min": 99.9,
+  "latency_p99_ms_max": 100.0,
+  "error_rate_percent_max": 0.5,
+  "error_budget_remaining_percent_min": 20.0,
+  "throughput_rps_per_core_min": 300.0
+}

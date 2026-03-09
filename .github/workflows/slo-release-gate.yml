@@ -1,0 +1,45 @@
+name: 📈 SLO/SLI Release Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "slo/**"
+      - "scripts/enforce_slo_gate.sh"
+      - ".github/workflows/slo-release-gate.yml"
+      - ".github/workflows/release-readiness-gate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "slo/**"
+      - "scripts/enforce_slo_gate.sh"
+      - ".github/workflows/slo-release-gate.yml"
+      - ".github/workflows/release-readiness-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Enforce SLO/SLI release gate
+        env:
+          SLO_GATE_FILE: slo/release-gate.json
+          SLI_METRICS_FILE: slo/current-sli.json
+          SLO_GATE_REPORT_MD: target/slo-gate-report.md
+        run: |
+          chmod +x ./scripts/enforce_slo_gate.sh
+          ./scripts/enforce_slo_gate.sh
+      - name: Upload SLO gate report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: slo-gate-report
+          path: target/slo-gate-report.md

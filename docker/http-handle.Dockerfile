@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM rust:1.87@sha256:251cec8da4689d180f124ef00024c2f83f79d9bf984e43c180a598119e326b84 as builder
+FROM rust:1.88 as builder
 WORKDIR /src
 COPY . .
 RUN cargo build --release --bin http-handle

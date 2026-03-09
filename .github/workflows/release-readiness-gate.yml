@@ -79,3 +79,13 @@ jobs:
           set -euo pipefail
           chmod +x ./scripts/verify_execution_plan_p0.sh
           ./scripts/verify_execution_plan_p0.sh
+
+      - name: Enforce SLO/SLI release gate
+        env:
+          SLO_GATE_FILE: slo/release-gate.json
+          SLI_METRICS_FILE: slo/current-sli.json
+          SLO_GATE_REPORT_MD: target/slo-gate-report.md
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/enforce_slo_gate.sh
+          ./scripts/enforce_slo_gate.sh

@@ -13,10 +13,31 @@ expect_grep() {
   local pattern="$1"
   local file="$2"
   local msg="$3"
-  if ! rg -q --pcre2 "${pattern}" "${file}"; then
+  if command -v rg >/dev/null 2>&1; then
+    if rg -q --pcre2 "${pattern}" "${file}"; then
+      return 0
+    fi
+  else
+    if PATTERN="${pattern}" perl -ne 'BEGIN { $p = $ENV{"PATTERN"} } exit 0 if /$p/; END { exit 1 }' "${file}"; then
+      return 0
+    fi
+  fi
+
+  failures+=("${msg} (${file})")
+}
+
+expect_file() {
+  local file="$1"
+  local msg="$2"
+  if [[ ! -f "${file}" ]]; then
     failures+=("${msg} (${file})")
   fi
 }
+
+expect_file ".github/workflows/release-readiness-gate.yml" \
+  "Release readiness aggregate gate workflow must exist"
+expect_file ".github/workflows/slo-release-gate.yml" \
+  "Dedicated SLO/SLI gate workflow must exist"
 
 expect_grep "PERF_BASELINE_DIR" ".github/workflows/perf-regression.yml" \
   "Perf regression workflow must use version-aware baseline directory"
@@ -38,11 +59,15 @@ expect_grep "findings-sla" ".github/workflows/security-zero-high.yml" \
 expect_grep "enforce_docs_governance\\.sh" ".github/workflows/release.yml" \
   "Release workflow must enforce docs governance"
 expect_grep "Release Readiness Gate" ".github/workflows/release-readiness-gate.yml" \
-  "Release readiness aggregate gate workflow must exist"
+  "Release readiness aggregate gate workflow name must be present"
 expect_grep "verify_execution_plan_p0\\.sh" ".github/workflows/release-readiness-gate.yml" \
   "Release readiness gate must verify execution-plan P0 controls"
 expect_grep "validate_docs_ia\\.sh" ".github/workflows/release-readiness-gate.yml" \
   "Release readiness gate must validate docs IA coverage"
+expect_grep "enforce_slo_gate\\.sh" ".github/workflows/release-readiness-gate.yml" \
+  "Release readiness gate must enforce SLO/SLI release policy"
+expect_grep "SLO/SLI Release Gate" ".github/workflows/slo-release-gate.yml" \
+  "Dedicated SLO/SLI gate workflow name must be present"
 
 if [[ "${#failures[@]}" -gt 0 ]]; then
   echo "Execution plan P0 verification failed:"
