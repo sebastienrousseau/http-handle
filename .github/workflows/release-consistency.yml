@@ -7,7 +7,7 @@ on:
       - "Cargo.toml"
       - "README.md"
       - "CHANGELOG.md"
-      - "docs/RELEASE_TRANSITION_v0.0.3.md"
+      - "docs/RELEASE_TRANSITION_v*.md"
       - ".github/workflows/release-consistency.yml"
   workflow_dispatch:
 
@@ -41,8 +41,13 @@ jobs:
             echo "CHANGELOG does not reference version ${version}"
             exit 1
           }
-          grep -q "v${version}" docs/RELEASE_TRANSITION_v0.0.3.md || {
-            echo "Release transition doc does not reference tag v${version}"
+          transition_doc="docs/RELEASE_TRANSITION_v${version}.md"
+          if [ ! -f "${transition_doc}" ]; then
+            echo "Missing release transition doc for version ${version}: ${transition_doc}"
+            exit 1
+          fi
+          grep -q "v${version}" "${transition_doc}" || {
+            echo "Release transition doc ${transition_doc} does not reference tag v${version}"
             exit 1
           }
 

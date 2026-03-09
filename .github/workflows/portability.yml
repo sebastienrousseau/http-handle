@@ -27,7 +27,17 @@ permissions:
   contents: read
 
 jobs:
+  matrix-doc-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Validate portability matrix documentation consistency
+        run: |
+          chmod +x ./scripts/validate_portability_matrix.sh
+          ./scripts/validate_portability_matrix.sh
+
   host-matrix:
+    needs: matrix-doc-consistency
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +53,7 @@ jobs:
           cargo test --test portability_conformance --all-features
 
   cross-compile:
+    needs: matrix-doc-consistency
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

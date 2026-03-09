@@ -5,7 +5,7 @@
 This project tracks Rust platform tiers and validates core functionality across:
 
 - Tier 1: `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`
-- Tier 2 (with host tools): `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
+- Tier 2 (with host tools): `aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`, `x86_64-unknown-linux-musl`
 
 ## CI Validation Modes
 

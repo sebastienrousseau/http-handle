@@ -11,6 +11,26 @@
 - Lock release artifact reproducibility (SLSA/SBOM/provenance) as merge blockers.
 - Close all open security findings with owner + SLA tracking in workflow reports.
 
+### P0 Gate Implementation Status (as of 2026-03-09)
+- [x] Performance CI thresholds + versioned baselines:
+  - `.github/workflows/perf-regression.yml`
+  - `scripts/perf/benchmark_matrix.sh`
+  - `scripts/perf/baseline-v0.0.3.json`
+- [x] Performance claim evidence artifacts:
+  - `scripts/perf/render_claim_report.sh`
+  - `docs/BENCHMARK_CLAIM_GOVERNANCE.md`
+- [x] Release reproducibility controls:
+  - `.github/workflows/release-artifacts.yml`
+  - `.github/workflows/sbom-attestation.yml`
+  - `.github/workflows/slsa-verification.yml`
+- [x] Security zero-high + SLA tracking:
+  - `.github/workflows/security-zero-high.yml`
+  - `scripts/enforce_security_sla.sh`
+  - `security/findings-sla.tsv`
+- [x] Aggregated release-readiness merge gate:
+  - `.github/workflows/release-readiness-gate.yml`
+  - `scripts/verify_execution_plan_p0.sh`
+
 ### P1
 - Expand enterprise policy surface:
   - JWT/API-key/mTLS policy integration examples.
@@ -44,4 +64,3 @@
 - P1 minimum viable scope complete.
 - CI/verification/certification fully green.
 - `CHANGELOG.md` updated and `v0.0.4` release candidate prepared.
-

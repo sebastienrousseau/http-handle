@@ -1,0 +1,16 @@
+# path	owner	max_age_days	last_reviewed
+README.md	@sebastienrousseau	30	2026-03-09
+docs/TUTORIALS.md	@sebastienrousseau	45	2026-03-09
+docs/ARCHITECTURE.md	@sebastienrousseau	60	2026-03-09
+docs/BENCHMARK_REPRODUCIBILITY.md	@sebastienrousseau	45	2026-03-09
+docs/DOCS_QUALITY_RUBRIC.md	@sebastienrousseau	30	2026-03-09
+docs/PORTABILITY_MATRIX.md	@sebastienrousseau	45	2026-03-09
+docs/SLSA_POLICY.md	@sebastienrousseau	45	2026-03-09
+docs/RELEASE_TRANSITION_v0.0.3.md	@sebastienrousseau	45	2026-03-09
+docs/ERRORS_AND_RECOVERY.md	@sebastienrousseau	45	2026-03-09
+docs/DEPRECATION_POLICY.md	@sebastienrousseau	45	2026-03-09
+docs/LTS_POLICY.md	@sebastienrousseau	45	2026-03-09
+docs/MIGRATION_GUIDE.md	@sebastienrousseau	45	2026-03-09
+docs/RECIPES.md	@sebastienrousseau	45	2026-03-09
+docs/BENCHMARK_CLAIM_GOVERNANCE.md	@sebastienrousseau	45	2026-03-09
+docs/SECURITY_SLA_POLICY.md	@sebastienrousseau	45	2026-03-09

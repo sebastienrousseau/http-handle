@@ -19,7 +19,11 @@ What the script enforces:
 - Starts `examples/benchmark_target.rs`.
 - Waits for readiness on the configured socket.
 - Fails if connection errors appear in benchmark output.
-- Applies a regression threshold via `MIN_RPS`.
+- Applies regression thresholds for:
+  - minimum `rps`
+  - minimum `rps_per_core`
+  - maximum `p99_latency_ms`
+- Automatically selects `scripts/perf/baseline-v<crate-version>.json` when present.
 
 ## Environment Standard
 
@@ -76,8 +80,8 @@ Performance checks run in:
 - `.github/workflows/perf-regression.yml`
 
 Recommendations:
-- Keep `MIN_RPS` conservative in CI to reduce false negatives.
-- Use branch-specific historical baselines for stricter release gates.
+- Keep baseline thresholds conservative in CI to reduce false negatives.
+- Store version-specific baselines (`baseline-vX.Y.Z.json`) for release gating.
 
 ## Common Failure Modes
 

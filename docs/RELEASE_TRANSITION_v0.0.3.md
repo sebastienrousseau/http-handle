@@ -1,10 +1,10 @@
 # Release Transition Plan: v0.0.3
 
 ## Objective
-- Cut and publish `v0.0.3` from `main` after PR #20 merge with all gates green.
+- Cut and publish `v0.0.3` from `main` after PR #81 (`feat/v0.0.3`) merges with all gates green.
 
 ## Preconditions (Must Be Green)
-- PR #20 merged into `main`.
+- PR #81 merged into `main`.
 - GitHub required checks passing on merge commit.
 - No open Dependabot alerts for the repository.
 - No open code-scanning alerts scoped to the release commit.
@@ -45,4 +45,3 @@
   - Mark GitHub release as pre-release or draft rollback notice.
   - Revert offending commit(s) on `main`.
   - Retag with `v0.0.4-rc1` after fixes instead of force-moving `v0.0.3`.
-

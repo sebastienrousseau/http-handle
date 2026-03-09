@@ -131,23 +131,22 @@ pub fn detect_host_profile() -> HostResourceProfile {
 }
 
 fn detect_memory_mib() -> Option<usize> {
-    if let Ok(val) = std::env::var("HTTP_HANDLE_MEMORY_MIB") {
-        if let Ok(parsed) = val.parse::<usize>() {
-            return Some(parsed);
-        }
+    if let Ok(val) = std::env::var("HTTP_HANDLE_MEMORY_MIB")
+        && let Ok(parsed) = val.parse::<usize>()
+    {
+        return Some(parsed);
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            if let Some(line) =
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo")
+            && let Some(line) =
                 meminfo.lines().find(|l| l.starts_with("MemTotal:"))
-            {
-                let kb = line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|v| v.parse::<usize>().ok())?;
-                return Some(kb / 1024);
-            }
+        {
+            let kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<usize>().ok())?;
+            return Some(kb / 1024);
         }
     }
     None
@@ -156,6 +155,12 @@ fn detect_memory_mib() -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn recommendation_scales_with_profile() {
@@ -188,23 +193,37 @@ mod tests {
 
     #[test]
     fn detect_memory_uses_env_hint_when_valid() {
+        let _guard = env_lock().lock().expect("env lock");
+        let previous = std::env::var("HTTP_HANDLE_MEMORY_MIB").ok();
         // Safety: test-only process env mutation in a bounded scope.
         unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "3072") };
         let got = detect_memory_mib();
-        // Safety: paired cleanup for the env key set above.
-        unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
+        if let Some(old) = previous {
+            // Safety: restoring process env key snapshot.
+            unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", old) };
+        } else {
+            // Safety: paired cleanup for key introduced in this test.
+            unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
+        }
         assert_eq!(got, Some(3072));
     }
 
     #[test]
     fn detect_memory_ignores_invalid_env_hint() {
+        let _guard = env_lock().lock().expect("env lock");
+        let previous = std::env::var("HTTP_HANDLE_MEMORY_MIB").ok();
         // Safety: test-only process env mutation in a bounded scope.
         unsafe {
             std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "not-a-number")
         };
         let got = detect_memory_mib();
-        // Safety: paired cleanup for the env key set above.
-        unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
+        if let Some(old) = previous {
+            // Safety: restoring process env key snapshot.
+            unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", old) };
+        } else {
+            // Safety: paired cleanup for key introduced in this test.
+            unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
+        }
         assert!(got.is_none() || got.expect("value") >= 1);
     }
 

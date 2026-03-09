@@ -8,6 +8,7 @@ on:
       - "Cargo.lock"
       - "docker/**"
       - "security/**"
+      - "scripts/enforce_security_sla.sh"
       - ".github/workflows/security-zero-high.yml"
   workflow_dispatch:
 
@@ -37,14 +38,19 @@ jobs:
       - name: Build image
         run: docker build -f docker/http-handle.Dockerfile -t http-handle-security:scan .
       - name: Trivy must report zero HIGH/CRITICAL
-        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # 0.34.0
-        with:
-          image-ref: http-handle-security:scan
-          format: json
-          output: trivy-high.json
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
-          ignore-unfixed: true
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/work" \
+            aquasec/trivy:0.69.1 \
+            image \
+            --format json \
+            --output /work/trivy-high.json \
+            --vuln-type os,library \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            http-handle-security:scan
       - name: Enforce zero high/critical
         run: |
           set -euo pipefail
@@ -53,3 +59,19 @@ jobs:
           echo "critical=$critical high=$high"
           test "$critical" -eq 0
           test "$high" -eq 0
+
+  findings-sla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Enforce security findings SLA registry
+        env:
+          SECURITY_SLA_REPORT_MD: target/security-sla-report.md
+        run: |
+          chmod +x ./scripts/enforce_security_sla.sh
+          ./scripts/enforce_security_sla.sh
+      - name: Upload security SLA report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: security-sla-report
+          path: target/security-sla-report.md

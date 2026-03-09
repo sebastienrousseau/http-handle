@@ -19,6 +19,13 @@ Each category is worth 10 points:
 11. Narrative tutorials exist and are linked from `README.md`.
 12. Architecture diagrams exist and are linked from `README.md`.
 13. Benchmark reproducibility guide exists and is linked from `README.md`.
+14. Error causes and recovery guide exists and is linked from `README.md`.
+15. Deprecation/migration policy exists and is linked from `README.md`.
+16. Tutorials include an explicit error-recovery and deprecation-readiness section.
+17. LTS and lifecycle policy exists and is linked from `README.md`.
+18. Migration guide exists and is linked from `README.md`.
+19. Recipes guide exists and is linked from `README.md`.
+20. Security findings SLA policy exists and is linked from `README.md`.
 
 ## Pass/Fail
 
