@@ -34,7 +34,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
       - uses: taiki-e/install-action@3129e4e510409181151d4a2b5a23cddc723a7015 # cargo-llvm-cov
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
-      - name: Enforce 95% line coverage
+      - name: Enforce >=95% unit-test line coverage
         run: >
-          cargo llvm-cov --all-features --workspace --all-targets --fail-under-lines 95 --summary-only
-          --ignore-filename-regex '(src/perf_server.rs|src/bin/http-handle.rs)'
+          cargo llvm-cov --all-features --workspace --lib --fail-under-lines 95 --summary-only
