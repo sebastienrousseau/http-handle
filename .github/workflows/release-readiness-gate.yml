@@ -1,0 +1,81 @@
+name: 🚦 Release Readiness Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "docs/**"
+      - "scripts/**"
+      - "security/**"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "docs/**"
+      - "scripts/**"
+      - "security/**"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup stable toolchain + cache
+        uses: ./.github/actions/rust-toolchain-cache
+        with:
+          toolchain: stable
+
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          cargo check --all-features
+          cargo test --all-features --lib --tests --bins
+
+      - name: Enforce documentation gates
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/enforce_docs_governance.sh ./scripts/validate_docs_ia.sh ./scripts/score_docs.sh
+          ./scripts/enforce_docs_governance.sh
+          ./scripts/validate_docs_ia.sh
+          ./scripts/score_docs.sh
+
+      - name: Enforce portability matrix consistency
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/validate_portability_matrix.sh
+          ./scripts/validate_portability_matrix.sh
+
+      - name: Enforce security findings SLA policy
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/enforce_security_sla.sh
+          ./scripts/enforce_security_sla.sh
+
+      - name: Verify execution plan P0 gates
+        run: |
+          set -euo pipefail
+          chmod +x ./scripts/verify_execution_plan_p0.sh
+          ./scripts/verify_execution_plan_p0.sh

@@ -131,23 +131,22 @@ pub fn detect_host_profile() -> HostResourceProfile {
 }
 
 fn detect_memory_mib() -> Option<usize> {
-    if let Ok(val) = std::env::var("HTTP_HANDLE_MEMORY_MIB") {
-        if let Ok(parsed) = val.parse::<usize>() {
-            return Some(parsed);
-        }
+    if let Ok(val) = std::env::var("HTTP_HANDLE_MEMORY_MIB")
+        && let Ok(parsed) = val.parse::<usize>()
+    {
+        return Some(parsed);
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-            if let Some(line) =
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo")
+            && let Some(line) =
                 meminfo.lines().find(|l| l.starts_with("MemTotal:"))
-            {
-                let kb = line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|v| v.parse::<usize>().ok())?;
-                return Some(kb / 1024);
-            }
+        {
+            let kb = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse::<usize>().ok())?;
+            return Some(kb / 1024);
         }
     }
     None

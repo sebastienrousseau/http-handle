@@ -1,0 +1,25 @@
+name: 🧭 Docs Governance Audit
+
+on:
+  schedule:
+    - cron: "15 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Run docs governance audit
+        run: |
+          chmod +x ./scripts/enforce_docs_governance.sh
+          ./scripts/enforce_docs_governance.sh

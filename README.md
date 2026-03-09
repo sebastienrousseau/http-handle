@@ -90,6 +90,11 @@ Supporting docs:
 - Tutorials: [`docs/TUTORIALS.md`](docs/TUTORIALS.md)
 - Architecture diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Benchmark reproducibility: [`docs/BENCHMARK_REPRODUCIBILITY.md`](docs/BENCHMARK_REPRODUCIBILITY.md)
+- Benchmark claim governance: [`docs/BENCHMARK_CLAIM_GOVERNANCE.md`](docs/BENCHMARK_CLAIM_GOVERNANCE.md)
+- Security findings SLA policy: [`docs/SECURITY_SLA_POLICY.md`](docs/SECURITY_SLA_POLICY.md)
+- Error causes and recovery: [`docs/ERRORS_AND_RECOVERY.md`](docs/ERRORS_AND_RECOVERY.md)
+- Deprecation and migration policy: [`docs/DEPRECATION_POLICY.md`](docs/DEPRECATION_POLICY.md)
+- LTS and lifecycle policy: [`docs/LTS_POLICY.md`](docs/LTS_POLICY.md)
 - Supply chain and scorecard policy: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md), [`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md)
 - Container hardening: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md)
 - Distributed rate limiting: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md)
@@ -97,6 +102,9 @@ Supporting docs:
 - Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md)
 - Release transition plan: [`docs/RELEASE_TRANSITION_v0.0.3.md`](docs/RELEASE_TRANSITION_v0.0.3.md)
 - Next milestone execution plan: [`docs/EXECUTION_PLAN_v0.0.4.md`](docs/EXECUTION_PLAN_v0.0.4.md)
+- Branch issue progress tracker: [`docs/ISSUE_PROGRESS.md`](docs/ISSUE_PROGRESS.md)
+- Migration guide: [`docs/MIGRATION_GUIDE.md`](docs/MIGRATION_GUIDE.md)
+- Recipes: [`docs/RECIPES.md`](docs/RECIPES.md)
 - Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Examples

@@ -317,12 +317,12 @@ impl EnterpriseConfigReloader {
 
         let mut watcher = notify::recommended_watcher(
             move |result: Result<notify::Event, notify::Error>| {
-                if result.is_ok() {
-                    if let Ok(next) = EnterpriseConfig::load_from_file(
+                if result.is_ok()
+                    && let Ok(next) = EnterpriseConfig::load_from_file(
                         &path_for_watch,
-                    ) {
-                        swap.store(Arc::new(next));
-                    }
+                    )
+                {
+                    swap.store(Arc::new(next));
                 }
             },
         )

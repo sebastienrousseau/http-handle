@@ -797,10 +797,10 @@ impl Server {
     fn trigger_shutdown_from_slot(
         slot: &Mutex<Option<Arc<ShutdownSignal>>>,
     ) {
-        if let Ok(guard) = slot.lock() {
-            if let Some(shutdown_signal) = guard.as_ref() {
-                shutdown_signal.shutdown();
-            }
+        if let Ok(guard) = slot.lock()
+            && let Some(shutdown_signal) = guard.as_ref()
+        {
+            shutdown_signal.shutdown();
         }
     }
 
@@ -1113,12 +1113,12 @@ fn build_response_for_stream(
             {
                 return generate_metrics_response();
             }
-            if let Some(ip) = peer_ip {
-                if is_rate_limited(server, ip) {
-                    let _ = METRIC_RATE_LIMITED
-                        .fetch_add(1, Ordering::Relaxed);
-                    return generate_too_many_requests_response();
-                }
+            if let Some(ip) = peer_ip
+                && is_rate_limited(server, ip)
+            {
+                let _ =
+                    METRIC_RATE_LIMITED.fetch_add(1, Ordering::Relaxed);
+                return generate_too_many_requests_response();
             }
             build_response_for_request_with_metrics(server, &request)
         }

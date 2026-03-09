@@ -130,3 +130,15 @@ Then publish docs preview:
 ```bash
 RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --all-features --no-deps
 ```
+
+## 6. Error Recovery and Deprecation Readiness
+
+Before release, verify operational docs are aligned with runtime behavior:
+
+1. Review common failure scenarios and recovery actions:
+   - `docs/ERRORS_AND_RECOVERY.md`
+2. Confirm deprecation and migration guidance is up to date:
+   - `docs/DEPRECATION_POLICY.md`
+3. Ensure release notes and migration details are synchronized:
+   - `CHANGELOG.md`
+   - `docs/RELEASE_TRANSITION_v0.0.3.md`

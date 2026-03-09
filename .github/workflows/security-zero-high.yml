@@ -8,6 +8,7 @@ on:
       - "Cargo.lock"
       - "docker/**"
       - "security/**"
+      - "scripts/enforce_security_sla.sh"
       - ".github/workflows/security-zero-high.yml"
   workflow_dispatch:
 
@@ -53,3 +54,19 @@ jobs:
           echo "critical=$critical high=$high"
           test "$critical" -eq 0
           test "$high" -eq 0
+
+  findings-sla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Enforce security findings SLA registry
+        env:
+          SECURITY_SLA_REPORT_MD: target/security-sla-report.md
+        run: |
+          chmod +x ./scripts/enforce_security_sla.sh
+          ./scripts/enforce_security_sla.sh
+      - name: Upload security SLA report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: security-sla-report
+          path: target/security-sla-report.md

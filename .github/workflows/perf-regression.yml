@@ -44,7 +44,7 @@ jobs:
         env:
           HTTP_HANDLE_MODE: high-perf
           HTTP_HANDLE_FEATURES: async,high-perf
-          PERF_BASELINE_FILE: scripts/perf/baseline.json
+          PERF_BASELINE_DIR: scripts/perf
           PERF_RESULT_JSON: target/perf-result.json
           PERF_USE_PREBUILT: "1"
         run: ./scripts/perf/benchmark_matrix.sh
@@ -53,3 +53,16 @@ jobs:
         with:
           name: perf-result
           path: target/perf-result.json
+      - name: Render performance claim report
+        env:
+          PERF_BASELINE_DIR: scripts/perf
+          PERF_RESULT_JSON: target/perf-result.json
+          PERF_CLAIM_REPORT_MD: target/perf-claim-report.md
+        run: |
+          chmod +x ./scripts/perf/render_claim_report.sh
+          ./scripts/perf/render_claim_report.sh
+      - name: Upload performance claim report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: perf-claim-report
+          path: target/perf-claim-report.md

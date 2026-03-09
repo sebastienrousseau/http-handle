@@ -17,6 +17,7 @@ READY_RETRIES="${READY_RETRIES:-600}"
 READY_SLEEP_SECS="${READY_SLEEP_SECS:-0.1}"
 PREBUILT_BIN="${PREBUILT_BIN:-target/debug/examples/benchmark_target}"
 BASELINE_FILE="${PERF_BASELINE_FILE:-scripts/perf/baseline.json}"
+BASELINE_DIR="${PERF_BASELINE_DIR:-scripts/perf}"
 RESULT_JSON="${PERF_RESULT_JSON:-target/perf-result.json}"
 
 mkdir -p "${ROOT_DIR}"
@@ -36,6 +37,14 @@ PY
 export HTTP_HANDLE_ADDR="$ADDR"
 export HTTP_HANDLE_ROOT="$ROOT_DIR"
 export HTTP_HANDLE_MODE="$MODE"
+
+if [[ -z "${PERF_BASELINE_FILE:-}" && -f "Cargo.toml" ]]; then
+  VERSION="$(awk -F '"' '/^version = / {print $2; exit}' Cargo.toml)"
+  if [[ -n "${VERSION:-}" && -f "${BASELINE_DIR}/baseline-v${VERSION}.json" ]]; then
+    BASELINE_FILE="${BASELINE_DIR}/baseline-v${VERSION}.json"
+    echo "Using versioned perf baseline: ${BASELINE_FILE}"
+  fi
+fi
 
 # Raise file descriptor limit when possible to reduce EMFILE flakiness.
 if ulimit -n 65535 >/dev/null 2>&1; then

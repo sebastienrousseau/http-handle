@@ -64,6 +64,22 @@ add_check "README links architecture diagrams" \
   "contains_regex 'docs/ARCHITECTURE\\.md' README.md && test -f docs/ARCHITECTURE.md"
 add_check "README links benchmark reproducibility guide" \
   "contains_regex 'docs/BENCHMARK_REPRODUCIBILITY\\.md' README.md && test -f docs/BENCHMARK_REPRODUCIBILITY.md"
+add_check "README links benchmark claim governance guide" \
+  "contains_regex 'docs/BENCHMARK_CLAIM_GOVERNANCE\\.md' README.md && test -f docs/BENCHMARK_CLAIM_GOVERNANCE.md"
+add_check "README links security findings SLA policy" \
+  "contains_regex 'docs/SECURITY_SLA_POLICY\\.md' README.md && test -f docs/SECURITY_SLA_POLICY.md"
+add_check "README links error causes and recovery guide" \
+  "contains_regex 'docs/ERRORS_AND_RECOVERY\\.md' README.md && test -f docs/ERRORS_AND_RECOVERY.md"
+add_check "README links deprecation and migration policy" \
+  "contains_regex 'docs/DEPRECATION_POLICY\\.md' README.md && test -f docs/DEPRECATION_POLICY.md"
+add_check "README links LTS and lifecycle policy" \
+  "contains_regex 'docs/LTS_POLICY\\.md' README.md && test -f docs/LTS_POLICY.md"
+add_check "README links migration guide" \
+  "contains_regex 'docs/MIGRATION_GUIDE\\.md' README.md && test -f docs/MIGRATION_GUIDE.md"
+add_check "README links recipes guide" \
+  "contains_regex 'docs/RECIPES\\.md' README.md && test -f docs/RECIPES.md"
+add_check "Tutorials include error recovery and deprecation readiness section" \
+  "contains_regex '^## 6\\. Error Recovery and Deprecation Readiness$' docs/TUTORIALS.md"
 
 score=$((passed * 100 / total))
 printf '\nDocumentation Score: %d/100\n' "${score}"

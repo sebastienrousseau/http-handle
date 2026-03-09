@@ -20,9 +20,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/rust-toolchain-cache
         with:
           toolchain: stable
+      - name: Enforce docs governance policy
+        run: |
+          chmod +x ./scripts/enforce_docs_governance.sh
+          ./scripts/enforce_docs_governance.sh
       - name: Validate release readiness (build + tests)
         run: |
           set -euo pipefail
