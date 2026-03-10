@@ -27,7 +27,7 @@ jobs:
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: target/x86_64-unknown-linux-musl/release/http-handle
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: http-handle-x86_64-unknown-linux-musl
           path: target/x86_64-unknown-linux-musl/release/http-handle

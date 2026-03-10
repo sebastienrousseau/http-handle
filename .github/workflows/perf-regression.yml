@@ -49,7 +49,7 @@ jobs:
           PERF_USE_PREBUILT: "1"
         run: ./scripts/perf/benchmark_matrix.sh
       - name: Upload perf result artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: perf-result
           path: target/perf-result.json
@@ -62,7 +62,7 @@ jobs:
           chmod +x ./scripts/perf/render_claim_report.sh
           ./scripts/perf/render_claim_report.sh
       - name: Upload performance claim report
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: perf-claim-report
           path: target/perf-claim-report.md
