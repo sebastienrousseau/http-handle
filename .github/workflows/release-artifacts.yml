@@ -24,7 +24,7 @@ jobs:
       - name: Build static binary
         run: cargo zigbuild --release --bin http-handle --target x86_64-unknown-linux-musl
       - name: Attest static binary provenance
-        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: target/x86_64-unknown-linux-musl/release/http-handle
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
