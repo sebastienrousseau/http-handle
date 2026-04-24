@@ -1,55 +1,30 @@
-# Unified CI Pipeline
-# Uses reusable workflows from sebastienrousseau/pipelines
-
 name: CI
-
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "build.rs"
-      - "benches/**"
-      - "examples/**"
-      - "tests/**"
-      - ".github/workflows/*.yml"
-      - "rustfmt.toml"
-      - "clippy.toml"
+    branches: [main, feat/**]
   pull_request:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "build.rs"
-      - "benches/**"
-      - "examples/**"
-      - "tests/**"
-      - ".github/workflows/*.yml"
-      - "rustfmt.toml"
-      - "clippy.toml"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
-  rust-ci:
-    name: Rust CI
-    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
+  ci:
+    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@main
     with:
-      rust-version: stable
-      run-clippy: true
-      run-fmt: true
-      run-audit: true
-      # Coverage is enforced by .github/workflows/coverage-strict.yml.
-      # Disable duplicate pipeline coverage job to avoid Codecov-token failures on protected branches.
-      run-coverage: false
-    secrets: inherit
+      rust-version: 'stable'
+      run-coverage: true
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  security:
+    uses: sebastienrousseau/pipelines/.github/workflows/security.yml@main
+    with:
+      language: rust
+
+  docs:
+    if: github.ref == 'refs/heads/main'
+    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@main
+    with:
+      type: rust
+      redirect-crate: http-handle
