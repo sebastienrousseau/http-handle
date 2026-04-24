@@ -32,6 +32,7 @@ log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
 euxis-commons = { version = "0.0.2", default-features = false, features = ["error", "logging", "time"] }
 ctrlc = "3.4"                               # Signal handling for graceful shutdown
+crossbeam-channel = "0.5"                   # Lock-free MPMC channel for the worker thread pool hot path
 regex = "1.11"                              # Runtime custom language pattern support
 tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
 tracing = { version = "0.1", optional = true }     # Structured logging

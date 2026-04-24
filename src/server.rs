@@ -14,6 +14,7 @@
 use crate::error::ServerError;
 use crate::request::Request;
 use crate::response::Response;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -21,7 +22,8 @@ use std::io;
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+#[cfg(test)]
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -425,13 +427,16 @@ impl ThreadPool {
     pub fn new(size: usize) -> ThreadPool {
         assert!(size > 0);
 
-        let (sender, receiver) = mpsc::channel();
-        let receiver = Arc::new(Mutex::new(receiver));
+        // crossbeam-channel's MPMC receiver is Clone + lock-free, so each
+        // worker owns its own handle to the shared queue instead of
+        // contending on Arc<Mutex<Receiver>>. Previous design serialized
+        // every `recv()` through one mutex regardless of worker count.
+        let (sender, receiver) = unbounded();
 
         let mut workers = Vec::with_capacity(size);
 
         for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)));
+            workers.push(Worker::new(id, receiver.clone()));
         }
 
         // Return configured thread_pool instance
@@ -454,8 +459,10 @@ impl ThreadPool {
 impl Drop for ThreadPool {
     fn drop(&mut self) {
         // Close the job channel first so workers exit their recv() loop.
-        let (replacement_sender, _replacement_receiver) =
-            mpsc::channel();
+        // Replacing the sender drops the original; when the last Sender
+        // goes out of scope the channel disconnects and every cloned
+        // Receiver returns Err from recv().
+        let (replacement_sender, _replacement_receiver) = unbounded();
         let old_sender =
             std::mem::replace(&mut self.sender, replacement_sender);
         drop(old_sender);
@@ -471,24 +478,12 @@ impl Drop for ThreadPool {
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Receiver<Job>) -> Worker {
         let thread = thread::spawn(move || {
-            loop {
-                let job = receiver.lock().unwrap().recv();
-
-                match job {
-                    Ok(job) => {
-                        job();
-                    }
-                    Err(_) => {
-                        println!(
-                            "Worker {} disconnected; shutting down.",
-                            id
-                        );
-                        break;
-                    }
-                }
+            while let Ok(job) = receiver.recv() {
+                job();
             }
+            println!("Worker {id} disconnected; shutting down.");
         });
 
         Worker {
