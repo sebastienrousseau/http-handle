@@ -10,7 +10,7 @@
 
 use crate::error::ServerError;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
 /// Represents an HTTP response payload and metadata.
 ///
@@ -144,11 +144,17 @@ impl Response {
         &self,
         stream: &mut W,
     ) -> Result<(), ServerError> {
+        // Coalesce status line, headers, and trailer CRLF into a single
+        // buffered flush. Prior implementation emitted one write() syscall
+        // per header field; for a typical 5-header response that collapses
+        // 8+ syscalls into 1–2.
+        let mut w = BufWriter::with_capacity(4096, stream);
+
         let mut has_content_length = false;
         let mut has_connection = false;
 
         write!(
-            stream,
+            w,
             "HTTP/1.1 {} {}\r\n",
             self.status_code, self.status_text
         )?;
@@ -160,19 +166,19 @@ impl Response {
             if name.eq_ignore_ascii_case("connection") {
                 has_connection = true;
             }
-            write!(stream, "{}: {}\r\n", name, value)?;
+            write!(w, "{}: {}\r\n", name, value)?;
         }
 
         if !has_content_length {
-            write!(stream, "Content-Length: {}\r\n", self.body.len())?;
+            write!(w, "Content-Length: {}\r\n", self.body.len())?;
         }
         if !has_connection {
-            write!(stream, "Connection: close\r\n")?;
+            w.write_all(b"Connection: close\r\n")?;
         }
 
-        write!(stream, "\r\n")?;
-        stream.write_all(&self.body)?;
-        stream.flush()?;
+        w.write_all(b"\r\n")?;
+        w.write_all(&self.body)?;
+        w.flush()?;
 
         Ok(())
     }

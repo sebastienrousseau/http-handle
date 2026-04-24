@@ -97,6 +97,8 @@ async fn handle_h2_connection(
     stream: tokio::net::TcpStream,
     server: Server,
 ) -> Result<(), ServerError> {
+    // Disable Nagle — HTTP/2 frame flushing should not wait for delayed ACK.
+    let _ = stream.set_nodelay(true);
     let mut connection = h2::server::handshake(stream)
         .await
         .map_err(h2_handshake_err)?;

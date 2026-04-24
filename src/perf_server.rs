@@ -160,6 +160,9 @@ async fn handle_async_connection(
     server: &Server,
     limits: &PerfLimits,
 ) -> Result<(), ServerError> {
+    // Disable Nagle so header+body are not held by the kernel waiting
+    // for a delayed ACK on small payloads.
+    let _ = stream.set_nodelay(true);
     let timeout_dur =
         server.request_timeout().unwrap_or(Duration::from_secs(30));
 

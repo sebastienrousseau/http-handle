@@ -67,6 +67,11 @@ static METRIC_RATE_LIMITED: AtomicUsize = AtomicUsize::new(0);
 pub struct Server {
     address: String,
     document_root: PathBuf,
+    /// Canonicalized `document_root` cached at build time. Skipped from
+    /// serde so the wire shape of `Server` is unchanged; recomputed on
+    /// deserialize via `Default`.
+    #[serde(skip, default)]
+    canonical_document_root: PathBuf,
     cors_enabled: Option<bool>,
     cors_origins: Option<Vec<String>>,
     custom_headers: Option<HashMap<String, String>>,
@@ -275,10 +280,15 @@ impl ServerBuilder {
         let address = self.address.ok_or("Address is required")?;
         let document_root =
             self.document_root.ok_or("Document root is required")?;
+        // Canonicalize once at build time so the request hot path no longer
+        // issues two fs::canonicalize syscalls per request.
+        let canonical_document_root = fs::canonicalize(&document_root)
+            .unwrap_or_else(|_| document_root.clone());
 
         Ok(Server {
             address,
             document_root,
+            canonical_document_root,
             cors_enabled: self.cors_enabled,
             cors_origins: self.cors_origins,
             custom_headers: self.custom_headers,
@@ -568,9 +578,13 @@ impl Server {
     /// This function does not panic.
     #[doc(alias = "constructor")]
     pub fn new(address: &str, document_root: &str) -> Self {
+        let document_root = PathBuf::from(document_root);
+        let canonical_document_root = fs::canonicalize(&document_root)
+            .unwrap_or_else(|_| document_root.clone());
         Server {
             address: address.to_string(),
-            document_root: PathBuf::from(document_root),
+            document_root,
+            canonical_document_root,
             cors_enabled: None,
             cors_origins: None,
             custom_headers: None,
@@ -1057,6 +1071,9 @@ pub(crate) fn handle_connection(
     mut stream: TcpStream,
     server: &Server,
 ) -> Result<(), ServerError> {
+    // Disable Nagle so small responses ship immediately instead of
+    // stalling behind delayed-ACK on the client side.
+    let _ = stream.set_nodelay(true);
     let timeout =
         server.request_timeout.unwrap_or(Duration::from_secs(30));
     stream.set_read_timeout(Some(timeout))?;
@@ -1089,6 +1106,8 @@ fn handle_connection_tracked(
 ) -> Result<(), ServerError> {
     // Ensure per-connection reads are blocking even if the listener is non-blocking.
     stream.set_nonblocking(false)?;
+    // Disable Nagle — small responses should not wait for delayed ACKs.
+    let _ = stream.set_nodelay(true);
 
     // Set a reasonable timeout for connection handling
     let timeout =
@@ -1150,6 +1169,7 @@ pub(crate) fn build_response_for_request(
         "GET" => generate_response_with_cache(
             request,
             &server.document_root,
+            &server.canonical_document_root,
             server.static_cache_ttl_secs,
         ),
         "HEAD" => {
@@ -1237,16 +1257,23 @@ fn generate_response(
     request: &Request,
     document_root: &Path,
 ) -> Result<Response, ServerError> {
-    generate_response_with_cache(request, document_root, None)
+    // Fallback entry point used only by tests: canonicalize lazily.
+    let canonical = fs::canonicalize(document_root)
+        .unwrap_or_else(|_| document_root.to_path_buf());
+    generate_response_with_cache(
+        request,
+        document_root,
+        &canonical,
+        None,
+    )
 }
 
 fn generate_response_with_cache(
     request: &Request,
     document_root: &Path,
+    canonical_root: &Path,
     cache_ttl_secs: Option<u64>,
 ) -> Result<Response, ServerError> {
-    let canonical_root = fs::canonicalize(document_root)
-        .unwrap_or_else(|_| document_root.to_path_buf());
     let mut path = PathBuf::from(document_root);
     let request_path = request.path().trim_start_matches('/');
 
@@ -1264,7 +1291,7 @@ fn generate_response_with_cache(
     }
 
     let within_root = fs::canonicalize(&path)
-        .map(|candidate| candidate.starts_with(&canonical_root))
+        .map(|candidate| candidate.starts_with(canonical_root))
         .unwrap_or_else(|_| path.starts_with(document_root));
     if !within_root {
         return Err(ServerError::forbidden("Access denied"));
@@ -2733,9 +2760,13 @@ mod tests {
             headers,
         };
 
-        let response =
-            generate_response_with_cache(&request, root.path(), None)
-                .expect("response");
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+        )
+        .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-encoding")
                 && value.eq_ignore_ascii_case("zstd")
@@ -2761,9 +2792,13 @@ mod tests {
             headers,
         };
 
-        let response =
-            generate_response_with_cache(&request, root.path(), None)
-                .expect("response");
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+        )
+        .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-encoding")
                 && value.eq_ignore_ascii_case("br")
@@ -2787,9 +2822,13 @@ mod tests {
             headers,
         };
 
-        let response =
-            generate_response_with_cache(&request, root.path(), None)
-                .expect("response");
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+        )
+        .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-encoding")
                 && value.eq_ignore_ascii_case("gzip")
@@ -2810,6 +2849,7 @@ mod tests {
         let response = generate_response_with_cache(
             &request,
             root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
             Some(600),
         )
         .expect("response");

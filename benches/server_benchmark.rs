@@ -51,8 +51,7 @@ fn spawn_sync_server(body: &[u8]) -> String {
     // Keep the TempDir alive for the life of the server thread.
     let _ = thread::spawn(move || {
         let _root_keepalive = root;
-        let server =
-            Server::new(&addr_for_server, &document_root);
+        let server = Server::new(&addr_for_server, &document_root);
         let _ = server.start();
     });
     // Retry until the kernel reports the port as bound.
@@ -84,18 +83,23 @@ fn bench_sync_server_small_body(c: &mut Criterion) {
 }
 
 fn bench_response_send_small(c: &mut Criterion) {
-    let mut response =
-        Response::new(200, "OK", b"<html><body>hello</body></html>".to_vec());
+    let mut response = Response::new(
+        200,
+        "OK",
+        b"<html><body>hello</body></html>".to_vec(),
+    );
     response.add_header("Content-Type", "text/html");
     response.add_header("ETag", "W/\"1f-68a0cf20\"");
     response.add_header("Accept-Ranges", "bytes");
-    let _ = c.bench_function("response_send_small_body_5_headers", |b| {
-        b.iter(|| {
-            let mut sink = Cursor::new(Vec::<u8>::with_capacity(256));
-            response.send(&mut sink).expect("send");
-            let _ = black_box(sink.into_inner());
+    let _ =
+        c.bench_function("response_send_small_body_5_headers", |b| {
+            b.iter(|| {
+                let mut sink =
+                    Cursor::new(Vec::<u8>::with_capacity(256));
+                response.send(&mut sink).expect("send");
+                let _ = black_box(sink.into_inner());
+            });
         });
-    });
 }
 
 criterion_group! {
