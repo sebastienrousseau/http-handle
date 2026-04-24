@@ -1,68 +1,65 @@
-<!-- markdownlint-disable MD033 MD041 -->
-<img src="https://kura.pro/http-handle/images/logos/http-handle.svg"
-alt="Http Handle logo" height="66" align="right" />
-<!-- markdownlint-enable MD033 MD041 -->
+<p align="center">
+  <img src="https://kura.pro/http-handle/images/logos/http-handle.svg" alt="HTTP Handle logo" width="128" />
+</p>
 
-# HTTP Handle (http-handle)
+<h1 align="center">HTTP Handle</h1>
 
-A Rust-based HTTP server for serving static websites.
+<p align="center">
+  <strong>A fast and lightweight Rust library for handling HTTP requests and responses.</strong>
+</p>
 
-<!-- markdownlint-disable MD033 MD041 -->
-<center>
-<!-- markdownlint-enable MD033 MD041 -->
+<p align="center">
+  <a href="https://github.com/sebastienrousseau/http-handle/actions"><img src="https://img.shields.io/github/actions/workflow/status/sebastienrousseau/http-handle/ci.yml?style=for-the-badge&logo=github" alt="Build" /></a>
+  <a href="https://crates.io/crates/http-handle"><img src="https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust" alt="Crates.io" /></a>
+  <a href="https://docs.rs/http-handle"><img src="https://img.shields.io/badge/docs.rs-http-handle-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" alt="Docs.rs" /></a>
+  <a href="https://codecov.io/gh/sebastienrousseau/http-handle"><img src="https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&logo=codecov" alt="Coverage" /></a>
+  <a href="https://lib.rs/crates/http-handle"><img src="https://img.shields.io/badge/lib.rs-v0.0.5-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
+</p>
 
-[![Made With Love][made-with-rust]][08] [![Crates.io][crates-badge]][03] [![lib.rs][libs-badge]][01] [![Docs.rs][docs-badge]][04] [![Codecov][codecov-badge]][06] [![Build Status][build-badge]][07] [![GitHub][github-badge]][09]
+---
 
-• [Website][00] • [Documentation][04] • [Report Bug][02] • [Request Feature][02] • [Contributing Guidelines][05]
+## Install
 
-<!-- markdownlint-disable MD033 MD041 -->
-</center>
-<!-- markdownlint-enable MD033 MD041 -->
+```bash
+cargo add http-handle
+```
 
-## Architectural Overview
-
-Use `http-handle` to serve static content fast, then scale to production policies without rewriting your core server path.
-
-Follow this critical path:
-
-1. Build and configure a server (`Server` / `ServerBuilder`).
-2. Parse incoming HTTP requests into typed request data.
-3. Generate and emit policy-aware HTTP responses.
-
-## Feature List
-
-- **Core Serving**: Static file routing, MIME detection, custom 404 pages, and request/response primitives.
-- **Operational Safety**: Directory traversal protection, graceful shutdown, and configurable timeout handling.
-- **Performance Paths**: Sync + async serving, precompressed asset negotiation (`br` / `gzip` / `zstd`), and high-performance runtime mode.
-- **Protocol Growth**: HTTP/2 support and HTTP/3 profile/fallback policy primitives.
-- **Enterprise Controls**: TLS/mTLS policy, API key/JWT auth hooks, RBAC/ABAC adapters, and runtime config reload patterns.
-- **Scale Features**: Distributed rate limiting, tenant isolation, observability hooks, and runtime auto-tuning.
-
-## Platform Support Matrix
-
-`http-handle` is validated with portability conformance tests and CI coverage across Unix-like targets.
-
-| Platform | Status | Notes |
-|---|---|---|
-| macOS | Supported | Primary development workflow and CI coverage. |
-| Linux | Supported | Production target for deployments and containers (validated on Ubuntu CI; Debian-compatible runtime assumptions). |
-| Windows (MSVC) | Supported | Tier-1 target in the portability policy and CI matrix. |
-| WSL (Windows Subsystem for Linux) | Supported | Uses Linux target behavior in WSL runtime. |
-
-## Installation
-
-Add this to your `Cargo.toml`:
+Or add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.4"
+http-handle = "0.0.5"
 ```
 
-Minimum supported Rust version (MSRV): `1.88.0`.
+You need [Rust](https://rustup.rs/) 1.88.0 or later. Works on macOS, Linux, and Windows.
 
-## Quick Start
+---
 
-Start with `Server::new`. Move to `ServerBuilder` when you need explicit policy controls.
+## Overview
+
+HTTP Handle is a lightweight HTTP server library for serving static websites. Start with `Server::new` for quick prototyping, then graduate to `ServerBuilder` for production control.
+
+- **Static file serving** with automatic MIME detection
+- **Fluent builder API** for CORS, headers, and timeouts
+- **Graceful shutdown** with configurable drain timeout
+- **Directory traversal protection** built in
+
+---
+
+## Features
+
+| | |
+| :--- | :--- |
+| **Static file serving** | Route requests to a document root with MIME detection |
+| **ServerBuilder** | Fluent API for CORS, headers, and timeouts |
+| **Graceful shutdown** | Signal-aware shutdown with configurable drain |
+| **Security** | Directory traversal protection and path sanitisation |
+| **Precompressed assets** | Content negotiation for br, gzip, and zstd |
+| **TLS / mTLS** | TLS and mutual-TLS configuration primitives |
+
+---
+
+## Usage
 
 ```rust,no_run
 use http_handle::Server;
@@ -73,94 +70,28 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-The server listens on `127.0.0.1:8080` and serves files from `./public`.
+---
 
-## Documentation
-
-Primary API docs: [docs.rs/http-handle][04]  
-GitHub Pages mirror: <https://sebastienrousseau.github.io/http-handle/>
-
-Local docs rendering (with docs.rs feature-gate badges):
+## Development
 
 ```bash
-RUSTDOCFLAGS="--cfg docsrs" cargo +nightly doc --open --all-features
+cargo build        # Build the project
+cargo test         # Run all tests
+cargo clippy       # Lint with Clippy
+cargo fmt          # Format with rustfmt
 ```
 
-Supporting docs:
-- Portability matrix: [`docs/PORTABILITY_MATRIX.md`](docs/PORTABILITY_MATRIX.md)
-- Protocol support: [`docs/PROTOCOL_SUPPORT.md`](docs/PROTOCOL_SUPPORT.md)
-- Tutorials: [`docs/TUTORIALS.md`](docs/TUTORIALS.md)
-- Architecture diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Benchmark reproducibility: [`docs/BENCHMARK_REPRODUCIBILITY.md`](docs/BENCHMARK_REPRODUCIBILITY.md)
-- Benchmark claim governance: [`docs/BENCHMARK_CLAIM_GOVERNANCE.md`](docs/BENCHMARK_CLAIM_GOVERNANCE.md)
-- Security findings SLA policy: [`docs/SECURITY_SLA_POLICY.md`](docs/SECURITY_SLA_POLICY.md)
-- SLO/SLI and error-budget release policy: [`docs/SLO_SLI_POLICY.md`](docs/SLO_SLI_POLICY.md)
-- OpenTelemetry pipeline policy: [`docs/OTEL_PIPELINE_POLICY.md`](docs/OTEL_PIPELINE_POLICY.md)
-- Error causes and recovery: [`docs/ERRORS_AND_RECOVERY.md`](docs/ERRORS_AND_RECOVERY.md)
-- Deprecation and migration policy: [`docs/DEPRECATION_POLICY.md`](docs/DEPRECATION_POLICY.md)
-- LTS and lifecycle policy: [`docs/LTS_POLICY.md`](docs/LTS_POLICY.md)
-- Supply chain and scorecard policy: [`docs/SLSA_POLICY.md`](docs/SLSA_POLICY.md), [`docs/SCORECARD_POLICY.md`](docs/SCORECARD_POLICY.md)
-- Container hardening: [`docs/CONTAINER_SECURITY_POLICY.md`](docs/CONTAINER_SECURITY_POLICY.md)
-- Distributed rate limiting: [`docs/DISTRIBUTED_RATE_LIMITING.md`](docs/DISTRIBUTED_RATE_LIMITING.md)
-- Tenant isolation: [`docs/TENANT_ISOLATION.md`](docs/TENANT_ISOLATION.md)
-- Runtime auto-tuning: [`docs/RUNTIME_AUTOTUNE.md`](docs/RUNTIME_AUTOTUNE.md)
-- Release transition plan: [`docs/RELEASE_TRANSITION_v0.0.3.md`](docs/RELEASE_TRANSITION_v0.0.3.md)
-- Next milestone execution plan: [`docs/EXECUTION_PLAN_v0.0.4.md`](docs/EXECUTION_PLAN_v0.0.4.md)
-- Branch issue progress tracker: [`docs/ISSUE_PROGRESS.md`](docs/ISSUE_PROGRESS.md)
-- Migration guide: [`docs/MIGRATION_GUIDE.md`](docs/MIGRATION_GUIDE.md)
-- Recipes: [`docs/RECIPES.md`](docs/RECIPES.md)
-- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, signed commits, and PR guidelines.
 
-## Release Publication
+---
 
-`crates.io` publishing is tag-driven. After merge to `main`, publish by pushing a `v*` tag (for example `v0.0.4`) or by manually running the publish workflow.
+**THE ARCHITECT** \u1d2b [Sebastien Rousseau](https://sebastienrousseau.com)
+**THE ENGINE** \u1d5e [EUXIS](https://euxis.co) \u1d2b Enterprise Unified Execution Intelligence System
 
-## Examples
-
-Run any example:
-
-```shell
-cargo run --example example_name
-```
-
-Start with these examples:
-- `server_example`: Build a server and serve a document root.
-- `server_builder_example`: Apply headers, CORS, and timeout policies.
-- `feature_async_server`: Run the async accept path.
-- `feature_http2_server`: Start the HTTP/2 path behind the `http2` feature.
-- `feature_enterprise_authorization`: Enforce RBAC authorization for an HTTP request.
-- `feature_runtime_autotune`: Derive runtime limits from host profile.
-
-Examples index: [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+---
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0][10].
+Dual-licensed under [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) or [MIT](https://opensource.org/licenses/MIT), at your option.
 
-## Acknowledgements
-
-Special thanks to all contributors who have helped build the `http-handle` library.
-
-[00]: https://http-handle.com
-[01]: https://lib.rs/crates/http-handle
-[02]: https://github.com/sebastienrousseau/http-handle/issues
-[03]: https://crates.io/crates/http-handle
-[04]: https://docs.rs/http-handle
-[05]: https://github.com/sebastienrousseau/http-handle/blob/main/CONTRIBUTING.md
-[06]: https://codecov.io/gh/sebastienrousseau/http-handle
-[07]: https://github.com/sebastienrousseau/http-handle/actions?query=branch%3Amain
-[08]: https://www.rust-lang.org/
-[09]: https://github.com/sebastienrousseau/http-handle
-[10]: https://www.gnu.org/licenses/agpl-3.0.en.html
-
-[build-badge]: https://img.shields.io/github/actions/workflow/status/sebastienrousseau/http-handle/release.yml?branch=main&style=for-the-badge&logo=github
-[codecov-badge]: https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&token=OOnQTi8yIQ&logo=codecov
-[crates-badge]: https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust
-[docs-badge]: https://img.shields.io/badge/docs.rs-http--handle-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs
-[github-badge]: https://img.shields.io/badge/github-sebastienrousseau/http--handle-8da0cb?style=for-the-badge&labelColor=555555&logo=github
-[libs-badge]: https://img.shields.io/badge/lib.rs-http--handle-orange.svg?style=for-the-badge
-[made-with-rust]: https://img.shields.io/badge/rust-f04041?style=for-the-badge&labelColor=c0282d&logo=rust
+<p align="right"><a href="#http-handle">Back to Top</a></p>
