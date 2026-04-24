@@ -2742,4 +2742,357 @@ mod tests {
         }));
         assert_eq!(response.body, b"zstd-data");
     }
+
+    #[test]
+    fn test_brotli_precompressed_asset_is_served() {
+        let root = setup_test_directory();
+        fs::write(root.path().join("index.html.br"), b"brotli-encoded")
+            .expect("write br");
+
+        let mut headers = HashMap::new();
+        let _ = headers.insert(
+            "accept-encoding".to_string(),
+            "br, gzip".to_string(),
+        );
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+
+        let response =
+            generate_response_with_cache(&request, root.path(), None)
+                .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-encoding")
+                && value.eq_ignore_ascii_case("br")
+        }));
+        assert_eq!(response.body, b"brotli-encoded");
+    }
+
+    #[test]
+    fn test_gzip_precompressed_asset_is_served() {
+        let root = setup_test_directory();
+        fs::write(root.path().join("index.html.gz"), b"gzdata")
+            .expect("write gz");
+
+        let mut headers = HashMap::new();
+        let _ = headers
+            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+
+        let response =
+            generate_response_with_cache(&request, root.path(), None)
+                .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-encoding")
+                && value.eq_ignore_ascii_case("gzip")
+        }));
+        assert_eq!(response.body, b"gzdata");
+    }
+
+    #[test]
+    fn test_serve_file_response_applies_cache_ttl() {
+        let root = setup_test_directory();
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            Some(600),
+        )
+        .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("cache-control")
+                && value.contains("max-age=600")
+        }));
+    }
+
+    #[test]
+    fn test_parse_range_header_covers_all_branches() {
+        // Missing header / wrong prefix / malformed.
+        assert!(parse_range_header(None, 100).is_none());
+        assert!(parse_range_header(Some("items=0-1"), 100).is_none());
+        assert!(
+            parse_range_header(Some("bytes=no-dash"), 100).is_none()
+        );
+        // Both ends empty.
+        assert!(parse_range_header(Some("bytes=-"), 100).is_none());
+        // Suffix form: last N bytes.
+        assert_eq!(
+            parse_range_header(Some("bytes=-10"), 100),
+            Some((90, 99))
+        );
+        // Suffix longer than file or zero: rejected.
+        assert!(parse_range_header(Some("bytes=-0"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=-500"), 100).is_none());
+        // Open-ended "start-" form uses total-1 as end.
+        assert_eq!(
+            parse_range_header(Some("bytes=10-"), 100),
+            Some((10, 99))
+        );
+        // Open-ended on empty body falls off checked_sub.
+        assert!(parse_range_header(Some("bytes=0-"), 0).is_none());
+        // Explicit start > end is rejected.
+        assert!(parse_range_header(Some("bytes=50-10"), 100).is_none());
+        // End beyond total is rejected.
+        assert!(
+            parse_range_header(Some("bytes=0-9999"), 100).is_none()
+        );
+        // Well-formed closed range.
+        assert_eq!(
+            parse_range_header(Some("bytes=0-9"), 100),
+            Some((0, 9))
+        );
+        // Non-numeric parts.
+        assert!(parse_range_header(Some("bytes=abc-9"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=0-abc"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=-abc"), 100).is_none());
+    }
+
+    #[test]
+    fn test_non_immutable_cache_control_policy_uses_ttl() {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .static_cache_ttl_secs(90)
+            .build()
+            .expect("server");
+
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+        let response = apply_response_policies(
+            Response::new(200, "OK", b"ok".to_vec()),
+            &server,
+            &request,
+        );
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("cache-control")
+                && value == "public, max-age=90"
+        }));
+    }
+
+    #[test]
+    fn test_cache_control_policy_respects_existing_header() {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .static_cache_ttl_secs(90)
+            .build()
+            .expect("server");
+
+        let mut existing = Response::new(200, "OK", b"ok".to_vec());
+        existing.add_header("Cache-Control", "no-store");
+
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/anything.txt".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+        let response =
+            apply_response_policies(existing, &server, &request);
+        let header = response
+            .headers
+            .iter()
+            .find(|(name, _)| {
+                name.eq_ignore_ascii_case("cache-control")
+            })
+            .map(|(_, value)| value.clone())
+            .expect("cache-control");
+        assert_eq!(header, "no-store");
+    }
+
+    #[test]
+    fn test_is_probably_immutable_asset_path_edge_cases() {
+        assert!(is_probably_immutable_asset_path(
+            "/assets/app-abcdef12.js"
+        ));
+        // No extension → rsplit_once('.') returns None.
+        assert!(!is_probably_immutable_asset_path("/noext"));
+        // Non-hex hash suffix is rejected.
+        assert!(!is_probably_immutable_asset_path(
+            "/assets/app-zzzzzzzz.js"
+        ));
+        // Too short to be a hash.
+        assert!(!is_probably_immutable_asset_path("/assets/app-ab.js"));
+    }
+
+    #[test]
+    fn test_record_metrics_tracks_5xx_responses() {
+        let before = METRIC_RESPONSES_5XX.load(Ordering::Relaxed);
+        let response =
+            Response::new(503, "SERVICE UNAVAILABLE", b"down".to_vec());
+        record_metrics(&response);
+        let after = METRIC_RESPONSES_5XX.load(Ordering::Relaxed);
+        assert!(after > before);
+    }
+
+    #[test]
+    fn test_rate_limit_recovers_from_poisoned_mutex() {
+        let state =
+            RATE_LIMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()));
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = state.lock().expect("lock");
+            panic!("intentional to poison");
+        });
+        assert!(state.is_poisoned());
+
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .rate_limit_per_minute(10)
+            .build()
+            .expect("server");
+        let ip: IpAddr = "127.0.0.1".parse().expect("ip");
+        // Must not panic even though the mutex is poisoned — poisoned lock
+        // recovery branch.
+        let _ = is_rate_limited(&server, ip);
+
+        // Clear poison so subsequent tests see a healthy lock.
+        state.clear_poison();
+    }
+
+    #[test]
+    fn test_log_connection_result_handles_error() {
+        // The Ok path is exercised by existing tests via run_*_accept_loop.
+        // Exercise the Err branch directly (eprintln) to cover the error arm.
+        Server::log_connection_result(Err(
+            ServerError::invalid_request("boom"),
+        ));
+    }
+
+    #[test]
+    fn test_start_with_shutdown_signal_reports_active_connections_on_timeout()
+     {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        // 50ms grace period so wait_for_shutdown returns `false` if a
+        // connection is still in flight when we request shutdown.
+        let shutdown =
+            Arc::new(ShutdownSignal::new(Duration::from_millis(50)));
+        let (ready_tx, ready_rx) = mpsc::channel::<String>();
+        let shutdown_for_server = shutdown.clone();
+        let server_clone = server.clone();
+        let handle = thread::spawn(move || {
+            server_clone
+                .start_with_shutdown_signal_and_ready(
+                    shutdown_for_server,
+                    move |addr| {
+                        let _ = ready_tx.send(addr);
+                    },
+                )
+                .expect("server start");
+        });
+
+        let addr = ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("ready");
+
+        // Hold a long-running connection so the grace period expires before
+        // the tracked handler finishes, forcing the "active connections
+        // remaining" branch.
+        let _holder = TcpStream::connect(&addr).expect("connect");
+        thread::sleep(Duration::from_millis(20));
+        shutdown.shutdown();
+
+        handle.join().expect("join server thread");
+    }
+
+    #[test]
+    fn test_start_with_thread_pool_serves_one_connection() {
+        let root = setup_test_directory();
+        let probe = TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        let _handle = thread::spawn(move || {
+            let _ = server.start_with_thread_pool(2);
+        });
+
+        // Retry briefly until the server has bound.
+        let mut stream = None;
+        for _ in 0..50 {
+            if let Ok(s) = TcpStream::connect(&addr.to_string()) {
+                stream = Some(s);
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let mut stream = stream.expect("server did not bind");
+        stream
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response).expect("read");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        // Thread continues serving but detaches with the test.
+    }
+
+    #[test]
+    fn test_start_with_pooling_serves_one_connection() {
+        let root = setup_test_directory();
+        let probe = TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        let _handle = thread::spawn(move || {
+            let _ = server.start_with_pooling(2, 4);
+        });
+
+        let mut stream = None;
+        for _ in 0..50 {
+            if let Ok(s) = TcpStream::connect(&addr.to_string()) {
+                stream = Some(s);
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let mut stream = stream.expect("server did not bind");
+        stream
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response).expect("read");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+    }
 }

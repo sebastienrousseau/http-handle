@@ -28,6 +28,26 @@ use std::path::{Path, PathBuf};
 #[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 use std::sync::Arc;
 
+#[cfg(feature = "enterprise")]
+fn serialize_config_err(e: toml::ser::Error) -> ServerError {
+    ServerError::Custom(format!("serialize config: {e}"))
+}
+
+#[cfg(feature = "enterprise")]
+fn watcher_init_err(e: notify::Error) -> ServerError {
+    ServerError::Custom(format!("watcher init failed: {e}"))
+}
+
+#[cfg(feature = "enterprise")]
+fn watcher_watch_err(e: notify::Error) -> ServerError {
+    ServerError::Custom(format!("watch failed: {e}"))
+}
+
+#[cfg(feature = "enterprise")]
+fn audit_serialize_err(e: serde_json::Error) -> ServerError {
+    ServerError::Custom(format!("audit serialize: {e}"))
+}
+
 /// Runtime deployment profile.
 ///
 /// # Examples
@@ -221,9 +241,8 @@ impl EnterpriseConfig {
     ///
     /// This function does not panic.
     pub fn save_to_file(&self, path: &Path) -> Result<(), ServerError> {
-        let text = toml::to_string_pretty(self).map_err(|e| {
-            ServerError::Custom(format!("serialize config: {e}"))
-        })?;
+        let text = toml::to_string_pretty(self)
+            .map_err(serialize_config_err)?;
         std::fs::write(path, text).map_err(ServerError::from)
     }
 
@@ -326,13 +345,11 @@ impl EnterpriseConfigReloader {
                 }
             },
         )
-        .map_err(|e| {
-            ServerError::Custom(format!("watcher init failed: {e}"))
-        })?;
+        .map_err(watcher_init_err)?;
 
-        watcher.watch(&path, RecursiveMode::NonRecursive).map_err(
-            |e| ServerError::Custom(format!("watch failed: {e}")),
-        )?;
+        watcher
+            .watch(&path, RecursiveMode::NonRecursive)
+            .map_err(watcher_watch_err)?;
 
         Ok(Self {
             current,
@@ -413,9 +430,7 @@ impl AccessAuditEvent {
     ///
     /// This function does not panic.
     pub fn to_json_line(&self) -> Result<String, ServerError> {
-        serde_json::to_string(self).map_err(|e| {
-            ServerError::Custom(format!("audit serialize: {e}"))
-        })
+        serde_json::to_string(self).map_err(audit_serialize_err)
     }
 }
 
@@ -1383,5 +1398,93 @@ mod tests {
         )
         .expect_err("authorization should deny");
         assert!(matches!(err, ServerError::Forbidden(_)));
+    }
+
+    #[test]
+    fn enforce_http_request_authorization_returns_ok_when_allowed() {
+        let auth = AuthorizationHook::new().with_engine(
+            RbacAdapter::default()
+                .grant_role("svc", "reader")
+                .grant_permission("reader", "/metrics", "GET"),
+        );
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/metrics".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+        };
+
+        enforce_http_request_authorization(
+            &auth,
+            &request,
+            "svc",
+            HashMap::new(),
+        )
+        .expect("should allow");
+    }
+
+    #[test]
+    fn error_context_helpers_wrap_source_message() {
+        // serde_json::Error — cheap: deserialize a clearly invalid doc.
+        let json_err =
+            serde_json::from_str::<u32>("definitely-not-a-number")
+                .expect_err("invalid number");
+        let audit = audit_serialize_err(json_err);
+        assert!(matches!(audit, ServerError::Custom(_)));
+        assert!(audit.to_string().contains("audit serialize:"));
+
+        // toml::ser::Error — serializing a scalar at the root fails
+        // because TOML requires a table at the root.
+        let toml_err = toml::to_string_pretty(&42_u32)
+            .expect_err("scalar root is not valid TOML");
+        let cfg = serialize_config_err(toml_err);
+        assert!(matches!(cfg, ServerError::Custom(_)));
+        assert!(cfg.to_string().contains("serialize config:"));
+
+        // notify::Error has a public constructor from io::Error.
+        let init_err = watcher_init_err(notify::Error::generic(
+            "mock init failure",
+        ));
+        assert!(matches!(init_err, ServerError::Custom(_)));
+        assert!(init_err.to_string().contains("watcher init failed:"));
+
+        let watch_err = watcher_watch_err(notify::Error::generic(
+            "mock watch failure",
+        ));
+        assert!(matches!(watch_err, ServerError::Custom(_)));
+        assert!(watch_err.to_string().contains("watch failed:"));
+    }
+
+    #[test]
+    fn reloader_applies_file_updates() {
+        use std::time::{Duration, Instant};
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("enterprise.toml");
+        EnterpriseConfig::default()
+            .save_to_file(&path)
+            .expect("initial write");
+
+        let reloader =
+            EnterpriseConfigReloader::watch(&path).expect("watch");
+        assert_eq!(reloader.snapshot().profile, RuntimeProfile::Dev);
+
+        // Give the watcher a moment to subscribe before we edit.
+        std::thread::sleep(Duration::from_millis(100));
+        EnterpriseConfig::production_baseline()
+            .save_to_file(&path)
+            .expect("update write");
+
+        // Wait for the async watcher callback to swap the atomic snapshot.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if reloader.snapshot().profile == RuntimeProfile::Prod {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!(
+            "reloader did not observe file update within 10s; final profile={:?}",
+            reloader.snapshot().profile
+        );
     }
 }

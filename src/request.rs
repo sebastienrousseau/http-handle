@@ -569,4 +569,99 @@ mod tests {
         assert_eq!(request.header("host"), Some("localhost"));
         assert_eq!(request.header("range"), Some("bytes=0-1"));
     }
+
+    fn run_request_bytes(
+        bytes: Vec<u8>,
+    ) -> Result<Request, ServerError> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _ = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = stream.write_all(&bytes);
+        });
+        let stream = TcpStream::connect(addr).unwrap();
+        Request::from_stream(&stream)
+    }
+
+    #[test]
+    fn test_missing_method_returns_error() {
+        let err = run_request_bytes(b"\r\n".to_vec()).unwrap_err();
+        assert!(
+            err.to_string().contains("missing method"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_too_many_parts_returns_error() {
+        let err =
+            run_request_bytes(b"GET / HTTP/1.1 extra\r\n".to_vec())
+                .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("expected") && msg.contains("parts"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_malformed_header_returns_error() {
+        let err = run_request_bytes(
+            b"GET / HTTP/1.1\r\nmissing-colon-line\r\n\r\n".to_vec(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("Malformed header line"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_header_line_too_long_returns_error() {
+        let mut req = Vec::from("GET / HTTP/1.1\r\nX: ");
+        req.extend(
+            std::iter::repeat(b'A').take(MAX_HEADER_LINE_LENGTH),
+        );
+        req.extend_from_slice(b"\r\n\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Header line too long"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_header_section_too_large_returns_error() {
+        // Many moderately sized header lines (each under MAX_HEADER_LINE_LENGTH)
+        // whose cumulative byte count exceeds MAX_HEADER_BYTES before the
+        // per-line or header-count guards trip.
+        let mut req = Vec::from("GET / HTTP/1.1\r\n");
+        let filler: String = "A".repeat(8000);
+        // Ten ~8KiB headers = ~80 KiB > 64 KiB cap.
+        for i in 0..10 {
+            req.extend_from_slice(
+                format!("H{i}: {filler}\r\n").as_bytes(),
+            );
+        }
+        req.extend_from_slice(b"\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Header section too large"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_too_many_headers_returns_error() {
+        let mut req = Vec::from("GET / HTTP/1.1\r\n");
+        for i in 0..=MAX_HEADER_COUNT {
+            req.extend_from_slice(format!("H{i}: v\r\n").as_bytes());
+        }
+        req.extend_from_slice(b"\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Too many request headers"),
+            "unexpected error: {err}"
+        );
+    }
 }

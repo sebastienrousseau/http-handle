@@ -1228,4 +1228,234 @@ mod tests {
         let join = task.await;
         assert!(join.is_err());
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_high_perf_drops_connections_when_queue_is_full() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("probe bind");
+        let addr = probe.local_addr().expect("probe addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        // One in-flight, zero queued: second concurrent connect must be
+        // rejected via the `queued_now > max_queue` branch.
+        let limits = PerfLimits {
+            max_inflight: 1,
+            max_queue: 0,
+            sendfile_threshold_bytes: u64::MAX,
+        };
+
+        let task = tokio::spawn(async move {
+            let _ = start_high_perf(server, limits).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Hold the single in-flight slot by connecting but never sending a
+        // request — the async handler stays blocked in `read` until timeout.
+        let _hold = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("first connect");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        // Fire multiple short-lived connections; each should be accepted
+        // then immediately dropped by the server (queue full / acquire timeout).
+        let mut dropped = 0_usize;
+        for _ in 0..8 {
+            let mut probe_stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("probe connect");
+            // The server drops the accepted socket in its `continue`, so the
+            // read end returns EOF quickly.
+            let mut buf = [0_u8; 8];
+            let read = timeout(
+                Duration::from_millis(200),
+                probe_stream.read(&mut buf),
+            )
+            .await;
+            if matches!(read, Ok(Ok(0))) {
+                dropped += 1;
+            }
+        }
+        assert!(
+            dropped > 0,
+            "expected at least one connection to be dropped by queue guard",
+        );
+
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_high_perf_falls_through_queue_timeout_path() {
+        // Exercise the `queued_now <= max_queue` branch where the connection
+        // waits on `acquire_owned` with a bounded timeout. A single in-flight
+        // slot is held indefinitely so queued connects never acquire; they
+        // drop after the 20ms acquire timeout.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("probe bind");
+        let addr = probe.local_addr().expect("probe addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let limits = PerfLimits {
+            max_inflight: 1,
+            // Allow one queued connect so `queued_now <= max_queue` and we hit
+            // the timeout-acquire branch.
+            max_queue: 4,
+            sendfile_threshold_bytes: u64::MAX,
+        };
+
+        let task = tokio::spawn(async move {
+            let _ = start_high_perf(server, limits).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Hold the in-flight slot.
+        let _hold = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("first connect");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        // Queue up a few more — each waits on the 20ms acquire timeout
+        // then gets dropped.
+        for _ in 0..3 {
+            let mut probe_stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("probe connect");
+            let mut buf = [0_u8; 8];
+            let _ = timeout(
+                Duration::from_millis(200),
+                probe_stream.read(&mut buf),
+            )
+            .await;
+        }
+
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_send_static_file_fast_path_invokes_sendfile_threshold()
+    {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let body: Vec<u8> = (0..2048_u32).map(|i| i as u8).collect();
+        std::fs::write(root.join("blob.bin"), &body).expect("write");
+
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let request = Request {
+            method: "GET".into(),
+            path: "/blob.bin".into(),
+            version: "HTTP/1.1".into(),
+            headers: HashMap::new(),
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        // Threshold = 0 forces the sendfile fast-path branch. On Linux it
+        // succeeds; on other Unix platforms it falls through to tokio::io::copy.
+        let served = try_send_static_file_fast_path(
+            &mut server_stream,
+            &server,
+            &request,
+            0,
+        )
+        .await
+        .expect("served");
+        assert!(served);
+        drop(server_stream);
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let head_end = bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("header terminator");
+        let head_text =
+            String::from_utf8_lossy(&bytes[..head_end]).to_string();
+        assert!(head_text.contains("HTTP/1.1 200 OK"));
+        assert_eq!(&bytes[head_end + 4..], body.as_slice());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_sendfile_unix_non_linux_returns_false() {
+        // The non-Linux/Android Unix fallback unconditionally returns `Ok(false)`.
+        // Linux has its own impl so we skip the assertion there.
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("f.bin");
+            std::fs::write(&path, b"x").expect("write");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let _ = tokio::spawn(async move {
+                tokio::net::TcpStream::connect(addr).await.expect("c")
+            });
+            let (server_stream, _) =
+                listener.accept().await.expect("accept");
+            let sent = try_sendfile_unix(&server_stream, &path, 1)
+                .await
+                .expect("stub");
+            assert!(!sent);
+        }
+    }
+
+    #[test]
+    fn resolve_static_path_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        std::fs::create_dir(&root).expect("mkroot");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&outside).expect("mkoutside");
+        std::fs::write(outside.join("secret.txt"), "shh")
+            .expect("write secret");
+        #[cfg(unix)]
+        {
+            let link = root.join("link.txt");
+            std::os::unix::fs::symlink(
+                outside.join("secret.txt"),
+                &link,
+            )
+            .expect("symlink");
+            assert!(
+                resolve_static_path(&root, "/link.txt").is_none(),
+                "symlink pointing outside root must not resolve",
+            );
+        }
+        #[cfg(not(unix))]
+        let _ = outside;
+    }
 }
