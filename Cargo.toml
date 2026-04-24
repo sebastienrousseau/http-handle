@@ -6,7 +6,7 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.4"                           # Current version of the crate
+version = "0.0.5"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.88.0"                     # Minimum supported Rust version
@@ -334,7 +334,7 @@ debug = false                               # Disable debug symbols in release b
 debug-assertions = false                    # Disable debug assertions
 incremental = false                         # Disable incremental compilation for optimal binary size
 lto = true                                  # Enable link-time optimization for smaller and faster binaries
-opt-level = "s"                             # Optimize for binary size
+opt-level = 3                             # Optimize for binary size
 overflow-checks = false                     # Disable overflow checks for performance
 panic = "abort"                             # Use abort on panic for minimal overhead
 rpath = false                               # Disable rpath generation

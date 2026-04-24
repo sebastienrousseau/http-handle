@@ -1,8 +1,8 @@
+#![forbid(unsafe_code)]
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 Sebastien Rousseau
 
 // src/lib.rs
-
 #![doc = include_str!("../README.md")]
 #![doc(
     html_favicon_url = "https://kura.pro/http-handle/images/favicon.ico",
