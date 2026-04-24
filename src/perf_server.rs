@@ -312,14 +312,16 @@ async fn try_send_static_file_fast_path(
 
     let Some(file_path) =
         resolve_static_path(server.document_root(), request.path())
+            .await
     else {
         return Ok(false);
     };
 
     let (serving_path, encoding) =
         negotiate_precompressed(&file_path, request);
-    let metadata =
-        std::fs::metadata(&serving_path).map_err(ServerError::from)?;
+    let metadata = tokio::fs::metadata(&serving_path)
+        .await
+        .map_err(ServerError::from)?;
     let len = metadata.len();
 
     let mut headers = Vec::new();
@@ -379,11 +381,11 @@ async fn try_send_static_file_fast_path(
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-fn resolve_static_path(
+async fn resolve_static_path(
     root: &Path,
     request_path: &str,
 ) -> Option<PathBuf> {
-    let canonical_root = std::fs::canonicalize(root).ok()?;
+    let canonical_root = tokio::fs::canonicalize(root).await.ok()?;
     let mut path = root.to_path_buf();
     let rel = request_path.trim_start_matches('/');
 
@@ -399,24 +401,22 @@ fn resolve_static_path(
         }
     }
 
-    let resolved = std::fs::canonicalize(&path).ok()?;
+    let resolved = tokio::fs::canonicalize(&path).await.ok()?;
     if !resolved.starts_with(canonical_root) {
         return None;
     }
 
-    if resolved.is_dir() {
+    let meta = tokio::fs::metadata(&resolved).await.ok()?;
+    if meta.is_dir() {
         let index = resolved.join("index.html");
-        if index.is_file() {
+        let index_meta = tokio::fs::metadata(&index).await.ok()?;
+        if index_meta.is_file() {
             return Some(index);
         }
         return None;
     }
 
-    if resolved.is_file() {
-        Some(resolved)
-    } else {
-        None
-    }
+    if meta.is_file() { Some(resolved) } else { None }
 }
 
 #[cfg(feature = "high-perf")]
@@ -504,7 +504,15 @@ async fn try_sendfile_unix(
     len: u64,
 ) -> Result<bool, ServerError> {
     use std::os::fd::AsRawFd;
-    let file = std::fs::File::open(path).map_err(ServerError::from)?;
+    // File::open is a blocking syscall; run it on the blocking pool so
+    // the Tokio reactor thread is never stalled opening files.
+    let path_owned = path.to_path_buf();
+    let file = tokio::task::spawn_blocking(move || {
+        std::fs::File::open(path_owned)
+    })
+    .await
+    .map_err(|e| ServerError::TaskFailed(e.to_string()))?
+    .map_err(ServerError::from)?;
     let mut offset: libc::off_t = 0;
     let mut sent: u64 = 0;
 
@@ -589,8 +597,8 @@ mod tests {
         assert!(parse_request_from_bytes(b"GET / \r\n\r\n").is_err());
     }
 
-    #[test]
-    fn resolve_static_path_and_content_type_behave() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn resolve_static_path_and_content_type_behave() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::write(root.join("index.html"), "ok").expect("write");
@@ -598,13 +606,17 @@ mod tests {
         std::fs::write(root.join("nested").join("index.html"), "n")
             .expect("write");
 
-        let p1 = resolve_static_path(root, "/").expect("root index");
+        let p1 =
+            resolve_static_path(root, "/").await.expect("root index");
         assert!(p1.ends_with("index.html"));
-        let p2 =
-            resolve_static_path(root, "/nested").expect("nested index");
+        let p2 = resolve_static_path(root, "/nested")
+            .await
+            .expect("nested index");
         assert!(p2.ends_with("nested/index.html"));
         assert!(
-            resolve_static_path(root, "/../../etc/passwd").is_none()
+            resolve_static_path(root, "/../../etc/passwd")
+                .await
+                .is_none()
         );
 
         assert_eq!(
@@ -1098,13 +1110,15 @@ mod tests {
         assert!(text.contains("Vary: Accept-Encoding"));
     }
 
-    #[test]
-    fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
+    #[tokio::test(flavor = "current_thread")]
+    async fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
      {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::create_dir(root.join("dir-no-index")).expect("mkdir");
-        assert!(resolve_static_path(root, "/dir-no-index").is_none());
+        assert!(
+            resolve_static_path(root, "/dir-no-index").await.is_none()
+        );
         assert!(!is_probably_immutable_asset("/assets/noext"));
         assert!(!is_probably_immutable_asset("/assets/file.js"));
     }
@@ -1436,8 +1450,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn resolve_static_path_rejects_symlink_escape() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn resolve_static_path_rejects_symlink_escape() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("root");
         std::fs::create_dir(&root).expect("mkroot");
@@ -1454,7 +1468,7 @@ mod tests {
             )
             .expect("symlink");
             assert!(
-                resolve_static_path(&root, "/link.txt").is_none(),
+                resolve_static_path(&root, "/link.txt").await.is_none(),
                 "symlink pointing outside root must not resolve",
             );
         }
