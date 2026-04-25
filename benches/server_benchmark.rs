@@ -83,6 +83,38 @@ fn spawn_sync_server(body: &[u8]) -> String {
     spawn_sync_server_with(body, AcceptMode::Basic)
 }
 
+fn spawn_sync_server_with_rate_limit(
+    body: &[u8],
+    rate_per_minute: usize,
+) -> String {
+    let (addr, root) = reserve_port();
+    std::fs::write(root.path().join("test.html"), body)
+        .expect("write body");
+    std::fs::create_dir(root.path().join("404")).expect("404 dir");
+    std::fs::write(root.path().join("404/index.html"), b"404")
+        .expect("write 404");
+    let document_root =
+        root.path().to_str().expect("utf8 path").to_string();
+    let addr_for_server = addr.clone();
+    let _ = thread::spawn(move || {
+        let _root_keepalive = root;
+        let server = Server::builder()
+            .address(&addr_for_server)
+            .document_root(&document_root)
+            .rate_limit_per_minute(rate_per_minute)
+            .build()
+            .expect("server build");
+        let _ = server.start();
+    });
+    for _ in 0..100 {
+        if TcpStream::connect(&addr).is_ok() {
+            return addr;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    panic!("server never bound on {addr}");
+}
+
 fn roundtrip(addr: &str) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
@@ -120,6 +152,22 @@ fn bench_sync_server_basic_concurrent_8(c: &mut Criterion) {
     let _ = c.bench_function("sync_server_basic_concurrent_8", |b| {
         b.iter(|| drive_concurrent(&addr, 8));
     });
+}
+
+fn bench_sync_server_rate_limit_concurrent_8(c: &mut Criterion) {
+    // Rate limit set high enough that requests don't get 429'd during
+    // the bench window; the goal is to exercise the contended path
+    // (every request still hits the sharded mutex), not to trigger
+    // limiting. usize::MAX/2 keeps headroom while staying well within
+    // the rate-limit guard's expected range.
+    let addr = spawn_sync_server_with_rate_limit(
+        b"<html><body>Test Content</body></html>",
+        usize::MAX / 2,
+    );
+    let _ =
+        c.bench_function("sync_server_rate_limit_concurrent_8", |b| {
+            b.iter(|| drive_concurrent(&addr, 8));
+        });
 }
 
 fn bench_sync_server_thread_pool_concurrent_8(c: &mut Criterion) {
@@ -205,6 +253,7 @@ criterion_group! {
         bench_sync_server_small_body,
         bench_sync_server_basic_concurrent_8,
         bench_sync_server_thread_pool_concurrent_8,
+        bench_sync_server_rate_limit_concurrent_8,
         bench_sync_server_shutdown_aware_single,
         bench_response_send_small
 }
