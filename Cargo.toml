@@ -221,6 +221,13 @@ name = "perf_server_benchmark"
 harness = false
 required-features = ["high-perf"]
 
+[[bench]]
+# HTTP/2 (h2c) bench — exercises start_http2 with an h2 client.
+# Regression-prevention for the h2 frame path.
+name = "http2_benchmark"
+harness = false
+required-features = ["http2"]
+
 [profile.bench]
 # Profile used when running benchmarks.
 debug = true                                # Include debug symbols for better diagnostics
