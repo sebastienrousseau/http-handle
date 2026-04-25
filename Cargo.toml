@@ -214,6 +214,13 @@ path = "examples/benchmark_target.rs"      # Path to the example file
 name = "server_benchmark"                   # Name of the benchmark
 harness = false                             # Disable the default benchmark harness (used by Criterion)
 
+[[bench]]
+# Async perf_server bench — single-client and concurrent variants exercising
+# the high-perf accept loop and the tokio::fs hot path.
+name = "perf_server_benchmark"
+harness = false
+required-features = ["high-perf"]
+
 [profile.bench]
 # Profile used when running benchmarks.
 debug = true                                # Include debug symbols for better diagnostics
