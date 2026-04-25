@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[cfg(test)]
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Mutex, Once, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -40,6 +40,13 @@ const RATE_LIMIT_SHARDS: usize = 16;
 type RateLimitShard = Mutex<HashMap<IpAddr, Vec<Instant>>>;
 type RateLimitTable = [RateLimitShard; RATE_LIMIT_SHARDS];
 static RATE_LIMIT_STATE: OnceLock<RateLimitTable> = OnceLock::new();
+
+/// Maximum entries kept in the ETag cache. The key is `(len, mtime_secs)`
+/// — collisions across distinct files with identical metadata are
+/// harmless because the etag string itself is identical by construction.
+const ETAG_CACHE_MAX: usize = 256;
+type EtagCache = RwLock<HashMap<(u64, u64), Arc<str>>>;
+static ETAG_CACHE: OnceLock<EtagCache> = OnceLock::new();
 static METRIC_REQUESTS_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_4XX: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_5XX: AtomicUsize = AtomicUsize::new(0);
@@ -1381,7 +1388,7 @@ fn serve_file_response(
     let etag = compute_etag(&metadata);
     if request
         .header("if-none-match")
-        .is_some_and(|candidate| candidate == etag)
+        .is_some_and(|candidate| candidate == &*etag)
     {
         let mut response =
             Response::new(304, "NOT MODIFIED", Vec::new());
@@ -1420,13 +1427,50 @@ fn serve_file_response(
     Ok(response)
 }
 
-fn compute_etag(metadata: &fs::Metadata) -> String {
+fn etag_cache() -> &'static EtagCache {
+    ETAG_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn compute_etag(metadata: &fs::Metadata) -> Arc<str> {
     let modified = metadata
         .modified()
         .ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map_or(0_u64, |duration| duration.as_secs());
-    format!("W/\"{:x}-{:x}\"", metadata.len(), modified)
+    let len = metadata.len();
+    let key = (len, modified);
+
+    let cache = etag_cache();
+    if let Ok(read) = cache.read()
+        && let Some(etag) = read.get(&key)
+    {
+        return Arc::clone(etag);
+    }
+
+    // Miss: format the etag and insert. The Arc<str> is shared between
+    // the cache and the caller, so subsequent hits return a refcount
+    // bump instead of a fresh String allocation.
+    let etag: Arc<str> =
+        Arc::from(format!("W/\"{:x}-{:x}\"", len, modified));
+
+    if let Ok(mut write) = cache.write() {
+        if write.len() >= ETAG_CACHE_MAX {
+            // Crude eviction: drop the first quarter of entries when we
+            // exceed the cap. Avoids unbounded growth without depending
+            // on an LRU crate. Workloads with high path churn that fill
+            // the cache get a periodic pause; typical static-content
+            // serving stays inside the cap and never evicts.
+            let drop_count = ETAG_CACHE_MAX / 4;
+            let to_remove: Vec<_> =
+                write.keys().take(drop_count).copied().collect();
+            for k in to_remove {
+                let _ = write.remove(&k);
+            }
+        }
+        let _ = write.insert(key, Arc::clone(&etag));
+    }
+
+    etag
 }
 
 fn parse_range_header(
