@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 // src/lib.rs
 #![doc = include_str!("../README.md")]

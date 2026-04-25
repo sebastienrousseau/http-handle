@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (c) 2026 Sebastien Rousseau
+# Copyright (c) 2023 - 2026 HTTP Handle
 
 set -euo pipefail
 
 mode="${1:-check}"
 
-rust_header='// SPDX-License-Identifier: AGPL-3.0-only\n// Copyright (c) 2026 Sebastien Rousseau\n'
-shell_header='# SPDX-License-Identifier: AGPL-3.0-only\n# Copyright (c) 2026 Sebastien Rousseau\n'
+rust_header='// SPDX-License-Identifier: AGPL-3.0-only\n// Copyright (c) 2023 - 2026 HTTP Handle\n'
+shell_header='# SPDX-License-Identifier: AGPL-3.0-only\n# Copyright (c) 2023 - 2026 HTTP Handle\n'
 
 status=0
 
