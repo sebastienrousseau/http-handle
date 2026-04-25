@@ -9,7 +9,6 @@
 //! header normalization, and explicit malformed-request errors.
 
 use crate::error::ServerError;
-use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, BufRead, BufReader};
 use std::net::TcpStream;
@@ -54,13 +53,12 @@ fn map_read_error(error: io::Error) -> ServerError {
 ///
 /// ```rust
 /// use http_handle::request::Request;
-/// use std::collections::HashMap;
 ///
 /// let request = Request {
 ///     method: "GET".to_string(),
 ///     path: "/".to_string(),
 ///     version: "HTTP/1.1".to_string(),
-///     headers: HashMap::new(),
+///     headers: Vec::new(),
 /// };
 /// assert_eq!(request.method(), "GET");
 /// ```
@@ -78,7 +76,13 @@ pub struct Request {
     /// HTTP version of the request.
     pub version: String,
     /// Parsed request headers (header-name lowercased).
-    pub headers: HashMap<String, String>,
+    ///
+    /// Stored as `Vec<(String, String)>` rather than a `HashMap` —
+    /// realistic request payloads carry well under 32 headers, so a
+    /// linear scan in `Request::header` outperforms hashing for both
+    /// lookup latency and per-request allocator pressure (no hash table
+    /// to grow + rehash).
+    pub headers: Vec<(String, String)>,
 }
 
 impl Request {
@@ -258,13 +262,16 @@ impl Request {
     /// This function does not panic.
     #[doc(alias = "header lookup")]
     pub fn header(&self, name: &str) -> Option<&str> {
+        // Linear scan: header counts in real traffic are O(10), so a
+        // case-insensitive equality check beats hashing the lookup key.
         self.headers
-            .get(&name.to_ascii_lowercase())
-            .map(String::as_str)
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     /// Returns all parsed headers.
-    pub fn headers(&self) -> &HashMap<String, String> {
+    pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
 
@@ -306,12 +313,15 @@ impl Request {
 
     fn read_headers<R: BufRead>(
         reader: &mut R,
-    ) -> Result<HashMap<String, String>, ServerError> {
-        let mut headers = HashMap::with_capacity(16);
+    ) -> Result<Vec<(String, String)>, ServerError> {
+        let mut headers: Vec<(String, String)> = Vec::with_capacity(16);
         let mut total_bytes = 0_usize;
+        // Reuse a single line buffer across iterations to avoid allocating
+        // a fresh String per header line.
+        let mut line = String::new();
 
         loop {
-            let mut line = String::new();
+            line.clear();
             let bytes =
                 reader.read_line(&mut line).map_err(map_read_error)?;
             if bytes == 0 {
@@ -344,10 +354,10 @@ impl Request {
                     "Too many request headers",
                 ));
             }
-            let _ = headers.insert(
+            headers.push((
                 name.trim().to_ascii_lowercase(),
                 value.trim().to_string(),
-            );
+            ));
         }
 
         Ok(headers)

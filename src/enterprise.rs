@@ -939,7 +939,7 @@ impl AuthorizationHook {
     ///     method: "GET".to_string(),
     ///     path: "/metrics".to_string(),
     ///     version: "HTTP/1.1".to_string(),
-    ///     headers: HashMap::new(),
+    ///     headers: Vec::new(),
     /// };
     ///
     /// let decision = auth.evaluate_http_request(
@@ -988,7 +988,7 @@ impl AuthorizationHook {
 ///     method: "GET".to_string(),
 ///     path: "/health".to_string(),
 ///     version: "HTTP/1.1".to_string(),
-///     headers: HashMap::new(),
+///     headers: Vec::new(),
 /// };
 ///
 /// let result = enforce_http_request_authorization(
@@ -1368,7 +1368,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/metrics".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let decision =
@@ -1387,7 +1387,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/admin".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let err = enforce_http_request_authorization(
@@ -1411,7 +1411,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/metrics".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         enforce_http_request_authorization(

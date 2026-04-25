@@ -21,7 +21,7 @@ fn main() {
         method: "GET".to_string(),
         path: "/health".to_string(),
         version: "HTTP/1.1".to_string(),
-        headers: std::collections::HashMap::new(),
+        headers: Vec::new(),
     };
 
     enforce_http_request_authorization(

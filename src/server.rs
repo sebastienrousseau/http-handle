@@ -2010,7 +2010,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let root_response =
@@ -2028,7 +2028,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let file_response =
@@ -2046,7 +2046,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/subdir/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let subdir_response =
@@ -2062,7 +2062,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/nonexistent.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let not_found_response =
@@ -2081,7 +2081,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/../outside.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let traversal_response =
@@ -2392,7 +2392,7 @@ mod tests {
             method: "OPTIONS".to_string(),
             path: "/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response = apply_response_policies(
             Response::new(200, "OK", Vec::new()),
@@ -2541,7 +2541,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/empty-dir/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let response = generate_response(&request, temp_dir.path())
@@ -2628,9 +2628,8 @@ mod tests {
         let temp_dir = setup_test_directory();
         let root = temp_dir.path();
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("range".to_string(), "bytes=0-4".to_string());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push(("range".to_string(), "bytes=0-4".to_string()));
         let range_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2648,8 +2647,8 @@ mod tests {
             .map(|(_, value)| value.clone())
             .expect("etag");
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert("if-none-match".to_string(), etag);
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push(("if-none-match".to_string(), etag));
         let conditional_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2801,7 +2800,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/assets/app-abcdef12.js".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response = apply_response_policies(
             Response::new(200, "OK", b"ok".to_vec()),
@@ -2820,11 +2819,11 @@ mod tests {
         let file = root.path().join("index.html.zst");
         fs::write(&file, b"zstd-data").expect("write");
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push((
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        );
+        ));
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2852,11 +2851,11 @@ mod tests {
         fs::write(root.path().join("index.html.br"), b"brotli-encoded")
             .expect("write br");
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push((
             "accept-encoding".to_string(),
             "br, gzip".to_string(),
-        );
+        ));
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2884,9 +2883,9 @@ mod tests {
         fs::write(root.path().join("index.html.gz"), b"gzdata")
             .expect("write gz");
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers
+            .push(("accept-encoding".to_string(), "gzip".to_string()));
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2915,7 +2914,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let response = generate_response_with_cache(
@@ -2987,7 +2986,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response = apply_response_policies(
             Response::new(200, "OK", b"ok".to_vec()),
@@ -3017,7 +3016,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/anything.txt".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response =
             apply_response_policies(existing, &server, &request);

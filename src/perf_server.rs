@@ -18,9 +18,6 @@ use crate::server::{Server, build_response_for_request_with_metrics};
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use std::collections::HashMap;
-#[cfg(feature = "high-perf")]
-#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
@@ -227,16 +224,16 @@ fn parse_request_from_bytes(
         })?
         .to_string();
 
-    let mut headers = HashMap::new();
+    let mut headers: Vec<(String, String)> = Vec::with_capacity(8);
     for line in lines {
         if line.is_empty() {
             break;
         }
         if let Some((name, value)) = line.split_once(':') {
-            let _ = headers.insert(
+            headers.push((
                 name.trim().to_ascii_lowercase(),
                 value.trim().to_string(),
-            );
+            ));
         }
     }
 
@@ -560,7 +557,6 @@ async fn try_sendfile_unix(
 #[cfg(all(test, feature = "high-perf"))]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::time::Duration;
@@ -667,9 +663,9 @@ mod tests {
         let base = dir.path().join("index.html");
         std::fs::write(&base, "x").expect("base");
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers
+            .push(("accept-encoding".to_string(), "gzip".to_string()));
         let req_gz = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -684,11 +680,11 @@ mod tests {
 
         std::fs::write(format!("{}.zst", base.display()), "x")
             .expect("zst");
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push((
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        );
+        ));
         let req_zst = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -701,11 +697,11 @@ mod tests {
 
         std::fs::write(format!("{}.br", base.display()), "x")
             .expect("br");
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push((
             "accept-encoding".to_string(),
             "br,zstd,gzip".to_string(),
-        );
+        ));
         let req_br = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -716,9 +712,9 @@ mod tests {
         assert!(p.ends_with("index.html.br"));
         assert_eq!(e, Some("br"));
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers
+            .push(("accept-encoding".to_string(), "gzip".to_string()));
         let req_gz_missing = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -751,7 +747,7 @@ mod tests {
             method: "GET".into(),
             path: "/app-abcdef12.js".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -793,7 +789,7 @@ mod tests {
             method: "HEAD".into(),
             path: "/app-abcdef12.js".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -854,7 +850,7 @@ mod tests {
             method: "POST".into(),
             path: "/index.html".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         assert!(
             !try_send_static_file_fast_path(
@@ -867,8 +863,8 @@ mod tests {
             .expect("ok")
         );
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert("range".into(), "bytes=0-3".into());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers.push(("range".into(), "bytes=0-3".into()));
         let range_req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -1071,9 +1067,9 @@ mod tests {
             .build()
             .expect("server");
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let mut headers: Vec<(String, String)> = Vec::new();
+        headers
+            .push(("accept-encoding".to_string(), "gzip".to_string()));
         let req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -1136,7 +1132,7 @@ mod tests {
             method: "GET".into(),
             path: "/missing.txt".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1385,7 +1381,7 @@ mod tests {
             method: "GET".into(),
             path: "/blob.bin".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
