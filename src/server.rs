@@ -740,6 +740,15 @@ impl Server {
         // Set a short timeout on the listener to allow checking shutdown signal
         listener.set_nonblocking(true)?;
 
+        // Adaptive backoff between non-blocking accept polls. Starts at
+        // 100 µs so a connection arriving while idle waits at most that
+        // long before we accept it; doubles up to a 5 ms cap so a truly
+        // idle server polls ~200×/sec (negligible CPU) and shutdown
+        // detection latency is bounded at 5 ms instead of 100 ms.
+        const MIN_IDLE_SLEEP: Duration = Duration::from_micros(100);
+        const MAX_IDLE_SLEEP: Duration = Duration::from_millis(5);
+        let mut idle_sleep = MIN_IDLE_SLEEP;
+
         loop {
             // Check if shutdown was requested
             if shutdown.is_shutdown_requested() {
@@ -750,14 +759,17 @@ impl Server {
             }
 
             match listener.accept() {
-                Ok((stream, _addr)) => Self::run_tracked_accept(
-                    stream,
-                    self.clone(),
-                    shutdown.clone(),
-                ),
+                Ok((stream, _addr)) => {
+                    idle_sleep = MIN_IDLE_SLEEP;
+                    Self::run_tracked_accept(
+                        stream,
+                        self.clone(),
+                        shutdown.clone(),
+                    );
+                }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // No connection waiting, sleep briefly and continue
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(idle_sleep);
+                    idle_sleep = (idle_sleep * 2).min(MAX_IDLE_SLEEP);
                 }
                 Err(e) => Self::log_listener_error(e),
             }

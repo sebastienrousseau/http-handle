@@ -11,20 +11,23 @@
 //!   (no hard-coded `8082` collision).
 //! - Reads every response to EOF before dropping the client socket, so the
 //!   previous `Connection reset by peer` noise in stderr is eliminated.
-//! - Deliberately uses the blocking accept loop (`Server::start`) rather
-//!   than the shutdown-aware loop. The shutdown loop uses a 100ms
-//!   sleep-poll on `WouldBlock`, which dominates single-client latency and
-//!   is not representative of the hot path.
+//! - Covers both the blocking accept loop (`Server::start`) and the
+//!   shutdown-aware loop (`Server::start_with_shutdown_signal_and_ready`).
+//!   The shutdown-aware loop now uses adaptive 100µs–5ms backoff instead
+//!   of a fixed 100ms sleep-poll, so single-client latency is no longer
+//!   dominated by accept-poll cadence.
 //!
 //! The server thread is leaked at bench end; the process exits immediately
 //! after Criterion, so the OS reclaims it.
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use http_handle::Server;
 use http_handle::response::Response;
+use http_handle::{Server, ShutdownSignal};
 use std::hint::black_box;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -130,6 +133,48 @@ fn bench_sync_server_thread_pool_concurrent_8(c: &mut Criterion) {
         });
 }
 
+fn spawn_shutdown_aware_server(body: &[u8]) -> String {
+    let (probe_addr, root) = reserve_port();
+    std::fs::write(root.path().join("test.html"), body)
+        .expect("write body");
+    std::fs::create_dir(root.path().join("404")).expect("404 dir");
+    std::fs::write(root.path().join("404/index.html"), b"404")
+        .expect("write 404");
+    let document_root =
+        root.path().to_str().expect("utf8 path").to_string();
+    let shutdown =
+        Arc::new(ShutdownSignal::new(Duration::from_secs(2)));
+    let _shutdown_keep = shutdown.clone();
+    let (ready_tx, ready_rx) = mpsc::channel::<String>();
+    let _ = thread::spawn(move || {
+        let _root_keep = root;
+        let server = Server::builder()
+            .address(&probe_addr)
+            .document_root(&document_root)
+            .build()
+            .expect("server build");
+        let _ = server.start_with_shutdown_signal_and_ready(
+            shutdown,
+            move |addr| {
+                let _ = ready_tx.send(addr);
+            },
+        );
+    });
+    ready_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("server never reported ready")
+}
+
+fn bench_sync_server_shutdown_aware_single(c: &mut Criterion) {
+    let addr = spawn_shutdown_aware_server(
+        b"<html><body>Test Content</body></html>",
+    );
+    let _ =
+        c.bench_function("sync_server_shutdown_aware_single", |b| {
+            b.iter(|| roundtrip(&addr));
+        });
+}
+
 fn bench_response_send_small(c: &mut Criterion) {
     let mut response = Response::new(
         200,
@@ -160,6 +205,7 @@ criterion_group! {
         bench_sync_server_small_body,
         bench_sync_server_basic_concurrent_8,
         bench_sync_server_thread_pool_concurrent_8,
+        bench_sync_server_shutdown_aware_single,
         bench_response_send_small
 }
 criterion_main!(benches);
