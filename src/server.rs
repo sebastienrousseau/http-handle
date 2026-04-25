@@ -32,9 +32,14 @@ static SHUTDOWN_SIGNAL_SLOT: OnceLock<
     Mutex<Option<Arc<ShutdownSignal>>>,
 > = OnceLock::new();
 static SIGNAL_HANDLER_INSTALL: Once = Once::new();
-static RATE_LIMIT_STATE: OnceLock<
-    Mutex<HashMap<IpAddr, Vec<Instant>>>,
-> = OnceLock::new();
+/// Number of shards in the rate-limit table. Picked to be a power of two so
+/// the modulo collapses to a bitmask, and large enough that contention from
+/// concurrent requests across distinct IPs almost always lands on different
+/// shards.
+const RATE_LIMIT_SHARDS: usize = 16;
+type RateLimitShard = Mutex<HashMap<IpAddr, Vec<Instant>>>;
+type RateLimitTable = [RateLimitShard; RATE_LIMIT_SHARDS];
+static RATE_LIMIT_STATE: OnceLock<RateLimitTable> = OnceLock::new();
 static METRIC_REQUESTS_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_4XX: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_5XX: AtomicUsize = AtomicUsize::new(0);
@@ -1228,14 +1233,30 @@ fn generate_too_many_requests_response() -> Response {
     response
 }
 
+fn rate_limit_shard_index(ip: IpAddr) -> usize {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    ip.hash(&mut h);
+    (h.finish() as usize) & (RATE_LIMIT_SHARDS - 1)
+}
+
+fn rate_limit_table() -> &'static RateLimitTable {
+    RATE_LIMIT_STATE.get_or_init(|| {
+        std::array::from_fn(|_| Mutex::new(HashMap::new()))
+    })
+}
+
 fn is_rate_limited(server: &Server, ip: IpAddr) -> bool {
     let Some(limit) = server.rate_limit_per_minute else {
         return false;
     };
     let now = Instant::now();
-    let state =
-        RATE_LIMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match state.lock() {
+    // Sharded by IP hash so concurrent requests from distinct clients
+    // almost always land on different shards. Cuts effective contention
+    // by a factor of RATE_LIMIT_SHARDS without introducing a dependency.
+    let shard = &rate_limit_table()[rate_limit_shard_index(ip)];
+    let mut guard = match shard.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
@@ -2994,13 +3015,15 @@ mod tests {
 
     #[test]
     fn test_rate_limit_recovers_from_poisoned_mutex() {
-        let state =
-            RATE_LIMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()));
+        // Poison only the shard that this IP would route to so the test
+        // doesn't disturb adjacent shards used by other concurrent tests.
+        let ip: IpAddr = "127.0.0.1".parse().expect("ip");
+        let shard = &rate_limit_table()[rate_limit_shard_index(ip)];
         let _ = std::panic::catch_unwind(|| {
-            let _guard = state.lock().expect("lock");
+            let _guard = shard.lock().expect("lock");
             panic!("intentional to poison");
         });
-        assert!(state.is_poisoned());
+        assert!(shard.is_poisoned());
 
         let root = setup_test_directory();
         let server = Server::builder()
@@ -3009,13 +3032,12 @@ mod tests {
             .rate_limit_per_minute(10)
             .build()
             .expect("server");
-        let ip: IpAddr = "127.0.0.1".parse().expect("ip");
-        // Must not panic even though the mutex is poisoned — poisoned lock
-        // recovery branch.
+        // Must not panic even though the shard is poisoned — poisoned
+        // lock recovery branch.
         let _ = is_rate_limited(&server, ip);
 
         // Clear poison so subsequent tests see a healthy lock.
-        state.clear_poison();
+        shard.clear_poison();
     }
 
     #[test]
