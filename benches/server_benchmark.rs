@@ -38,7 +38,12 @@ fn reserve_port() -> (String, TempDir) {
     (addr, root)
 }
 
-fn spawn_sync_server(body: &[u8]) -> String {
+enum AcceptMode {
+    Basic,
+    ThreadPool(usize),
+}
+
+fn spawn_sync_server_with(body: &[u8], mode: AcceptMode) -> String {
     let (addr, root) = reserve_port();
     std::fs::write(root.path().join("test.html"), body)
         .expect("write body");
@@ -52,7 +57,14 @@ fn spawn_sync_server(body: &[u8]) -> String {
     let _ = thread::spawn(move || {
         let _root_keepalive = root;
         let server = Server::new(&addr_for_server, &document_root);
-        let _ = server.start();
+        match mode {
+            AcceptMode::Basic => {
+                let _ = server.start();
+            }
+            AcceptMode::ThreadPool(size) => {
+                let _ = server.start_with_thread_pool(size);
+            }
+        }
     });
     // Retry until the kernel reports the port as bound.
     for _ in 0..100 {
@@ -62,6 +74,10 @@ fn spawn_sync_server(body: &[u8]) -> String {
         thread::sleep(Duration::from_millis(5));
     }
     panic!("server never bound on {addr}");
+}
+
+fn spawn_sync_server(body: &[u8]) -> String {
+    spawn_sync_server_with(body, AcceptMode::Basic)
 }
 
 fn roundtrip(addr: &str) {
@@ -80,6 +96,38 @@ fn bench_sync_server_small_body(c: &mut Criterion) {
     let _ = c.bench_function("sync_server_small_body_38B", |b| {
         b.iter(|| roundtrip(&addr));
     });
+}
+
+fn drive_concurrent(addr: &str, parallelism: usize) {
+    // Use scoped threads so the bench loop borrows `addr` without cloning.
+    thread::scope(|s| {
+        let mut handles = Vec::with_capacity(parallelism);
+        for _ in 0..parallelism {
+            handles.push(s.spawn(|| roundtrip(addr)));
+        }
+        for h in handles {
+            let _ = h.join();
+        }
+    });
+}
+
+fn bench_sync_server_basic_concurrent_8(c: &mut Criterion) {
+    let addr =
+        spawn_sync_server(b"<html><body>Test Content</body></html>");
+    let _ = c.bench_function("sync_server_basic_concurrent_8", |b| {
+        b.iter(|| drive_concurrent(&addr, 8));
+    });
+}
+
+fn bench_sync_server_thread_pool_concurrent_8(c: &mut Criterion) {
+    let addr = spawn_sync_server_with(
+        b"<html><body>Test Content</body></html>",
+        AcceptMode::ThreadPool(8),
+    );
+    let _ =
+        c.bench_function("sync_server_thread_pool_concurrent_8", |b| {
+            b.iter(|| drive_concurrent(&addr, 8));
+        });
 }
 
 fn bench_response_send_small(c: &mut Criterion) {
@@ -108,6 +156,10 @@ criterion_group! {
         .warm_up_time(Duration::from_secs(2))
         .measurement_time(Duration::from_secs(5))
         .sample_size(60);
-    targets = bench_sync_server_small_body, bench_response_send_small
+    targets =
+        bench_sync_server_small_body,
+        bench_sync_server_basic_concurrent_8,
+        bench_sync_server_thread_pool_concurrent_8,
+        bench_response_send_small
 }
 criterion_main!(benches);
