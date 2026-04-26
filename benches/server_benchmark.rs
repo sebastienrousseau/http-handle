@@ -181,6 +181,35 @@ fn bench_sync_server_thread_pool_concurrent_8(c: &mut Criterion) {
         });
 }
 
+fn bench_sync_server_thread_pool_concurrent_32(c: &mut Criterion) {
+    // Pool size deliberately under fan-out (16 workers, 32 inflight) so
+    // requests actually queue through the crossbeam-channel and the
+    // lock-free advantage shows up.
+    let addr = spawn_sync_server_with(
+        b"<html><body>Test Content</body></html>",
+        AcceptMode::ThreadPool(16),
+    );
+    let _ = c.bench_function(
+        "sync_server_thread_pool_concurrent_32",
+        |b| {
+            b.iter(|| drive_concurrent(&addr, 32));
+        },
+    );
+}
+
+fn bench_sync_server_thread_pool_concurrent_64(c: &mut Criterion) {
+    let addr = spawn_sync_server_with(
+        b"<html><body>Test Content</body></html>",
+        AcceptMode::ThreadPool(16),
+    );
+    let _ = c.bench_function(
+        "sync_server_thread_pool_concurrent_64",
+        |b| {
+            b.iter(|| drive_concurrent(&addr, 64));
+        },
+    );
+}
+
 fn spawn_shutdown_aware_server(body: &[u8]) -> String {
     let (probe_addr, root) = reserve_port();
     std::fs::write(root.path().join("test.html"), body)
@@ -253,6 +282,8 @@ criterion_group! {
         bench_sync_server_small_body,
         bench_sync_server_basic_concurrent_8,
         bench_sync_server_thread_pool_concurrent_8,
+        bench_sync_server_thread_pool_concurrent_32,
+        bench_sync_server_thread_pool_concurrent_64,
         bench_sync_server_rate_limit_concurrent_8,
         bench_sync_server_shutdown_aware_single,
         bench_response_send_small

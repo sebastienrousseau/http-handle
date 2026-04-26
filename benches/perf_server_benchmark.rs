@@ -111,23 +111,43 @@ fn bench_perf_server_async_single(c: &mut Criterion) {
     });
 }
 
+fn drive_async_concurrent(
+    rt: &tokio::runtime::Runtime,
+    addr: &str,
+    parallelism: usize,
+) {
+    rt.block_on(async {
+        let mut tasks = Vec::with_capacity(parallelism);
+        for _ in 0..parallelism {
+            let addr = addr.to_string();
+            tasks.push(tokio::spawn(async move {
+                roundtrip_async(&addr).await;
+            }));
+        }
+        for t in tasks {
+            let _ = t.await;
+        }
+    });
+}
+
 fn bench_perf_server_async_concurrent_8(c: &mut Criterion) {
     let (addr, rt) = spawn_perf_server();
     let _ = c.bench_function("perf_server_async_concurrent_8", |b| {
-        b.iter(|| {
-            rt.block_on(async {
-                let mut tasks = Vec::with_capacity(8);
-                for _ in 0..8 {
-                    let addr = addr.clone();
-                    tasks.push(tokio::spawn(async move {
-                        roundtrip_async(&addr).await;
-                    }));
-                }
-                for t in tasks {
-                    let _ = t.await;
-                }
-            });
-        });
+        b.iter(|| drive_async_concurrent(&rt, &addr, 8));
+    });
+}
+
+fn bench_perf_server_async_concurrent_32(c: &mut Criterion) {
+    let (addr, rt) = spawn_perf_server();
+    let _ = c.bench_function("perf_server_async_concurrent_32", |b| {
+        b.iter(|| drive_async_concurrent(&rt, &addr, 32));
+    });
+}
+
+fn bench_perf_server_async_concurrent_64(c: &mut Criterion) {
+    let (addr, rt) = spawn_perf_server();
+    let _ = c.bench_function("perf_server_async_concurrent_64", |b| {
+        b.iter(|| drive_async_concurrent(&rt, &addr, 64));
     });
 }
 
@@ -139,6 +159,8 @@ criterion_group! {
         .sample_size(40);
     targets =
         bench_perf_server_async_single,
-        bench_perf_server_async_concurrent_8
+        bench_perf_server_async_concurrent_8,
+        bench_perf_server_async_concurrent_32,
+        bench_perf_server_async_concurrent_64
 }
 criterion_main!(benches);
