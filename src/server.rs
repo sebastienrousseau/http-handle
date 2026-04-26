@@ -93,6 +93,12 @@ pub struct Server {
     connection_timeout: Option<Duration>,
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
+    /// Maximum file size, in bytes, that the in-memory file-serve path
+    /// will fully buffer. Files exceeding this cap return 503; this
+    /// guards against the OOM vector where a 1 GB file load drives RSS
+    /// to N × file_size on N concurrent requests. None falls back to
+    /// `DEFAULT_MAX_BUFFERED_BODY_BYTES` (64 MiB).
+    max_buffered_body_bytes: Option<u64>,
 }
 
 /// Builds a [`Server`] with optional policy and timeout configuration.
@@ -135,6 +141,7 @@ pub struct ServerBuilder {
     connection_timeout: Option<Duration>,
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: Option<u64>,
 }
 
 impl ServerBuilder {
@@ -266,6 +273,32 @@ impl ServerBuilder {
         self
     }
 
+    /// Sets the maximum file size (in bytes) the in-memory
+    /// file-serve path will buffer before returning 503.
+    ///
+    /// Defaults to [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] (64 MiB) when
+    /// unset. Lower this on memory-constrained hosts; raise it for
+    /// larger asset bundles where the operator has measured RSS
+    /// headroom under expected concurrent load.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::builder()
+    ///     .address("127.0.0.1:0")
+    ///     .document_root(".")
+    ///     .max_buffered_body_bytes(8 * 1024 * 1024) // 8 MiB cap
+    ///     .build()
+    ///     .expect("server");
+    /// assert_eq!(server.max_buffered_body_bytes(), 8 * 1024 * 1024);
+    /// ```
+    pub fn max_buffered_body_bytes(mut self, bytes: u64) -> Self {
+        self.max_buffered_body_bytes = Some(bytes);
+        self
+    }
+
     /// Finalizes builder state into a [`Server`].
     ///
     /// # Examples
@@ -310,6 +343,7 @@ impl ServerBuilder {
             connection_timeout: self.connection_timeout,
             rate_limit_per_minute: self.rate_limit_per_minute,
             static_cache_ttl_secs: self.static_cache_ttl_secs,
+            max_buffered_body_bytes: self.max_buffered_body_bytes,
         })
     }
 }
@@ -599,6 +633,7 @@ impl Server {
             connection_timeout: None,
             rate_limit_per_minute: None,
             static_cache_ttl_secs: None,
+            max_buffered_body_bytes: None,
         }
     }
 
@@ -1046,6 +1081,15 @@ impl Server {
     pub fn document_root(&self) -> &PathBuf {
         &self.document_root
     }
+
+    /// Returns the configured maximum file size, in bytes, that the
+    /// in-memory file-serve path will buffer. Falls back to
+    /// [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] when the builder didn't
+    /// override it.
+    pub fn max_buffered_body_bytes(&self) -> u64 {
+        self.max_buffered_body_bytes
+            .unwrap_or(DEFAULT_MAX_BUFFERED_BODY_BYTES)
+    }
 }
 
 /// Sends a 503 Service Unavailable response when connection pool is exhausted.
@@ -1090,10 +1134,11 @@ pub(crate) const MAX_KEEPALIVE_REQUESTS: usize = 100;
 pub(crate) const KEEPALIVE_IDLE_TIMEOUT: Duration =
     Duration::from_secs(5);
 
-/// Maximum file size, in bytes, that the in-memory `serve_file_response`
-/// path will fully buffer before sending. Files larger than this cap
-/// are rejected with `503 Service Unavailable` rather than allowed to
-/// drive the server's RSS to N × file_size on N concurrent requests.
+/// Default ceiling for the in-memory `serve_file_response` path when
+/// `Server::max_buffered_body_bytes` isn't set explicitly. Files
+/// larger than this cap are rejected with `503 Service Unavailable`
+/// rather than allowed to drive the server's RSS to N × file_size on
+/// N concurrent requests.
 ///
 /// Truly large files need a streaming response path that writes
 /// directly to the wire instead of materialising a `Vec<u8>` body.
@@ -1102,9 +1147,9 @@ pub(crate) const KEEPALIVE_IDLE_TIMEOUT: Duration =
 /// API change parked for v0.1.
 ///
 /// 64 MiB covers the vast majority of static-asset workloads (HTML,
-/// JS bundles, images, small video previews) without requiring a
-/// configuration knob.
-const MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
+/// JS bundles, images, small video previews). Override per-deployment
+/// via [`ServerBuilder::max_buffered_body_bytes`].
+pub const DEFAULT_MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Connection lifecycle decision derived from the request and HTTP
 /// version per RFC 7230 §6.3:
@@ -1310,6 +1355,7 @@ pub(crate) fn build_response_for_request(
             &server.document_root,
             &server.canonical_document_root,
             server.static_cache_ttl_secs,
+            server.max_buffered_body_bytes(),
         ),
         "HEAD" => {
             generate_head_response(request, &server.document_root)
@@ -1420,6 +1466,7 @@ fn generate_response(
         document_root,
         &canonical,
         None,
+        DEFAULT_MAX_BUFFERED_BODY_BYTES,
     )
 }
 
@@ -1428,6 +1475,7 @@ fn generate_response_with_cache(
     document_root: &Path,
     canonical_root: &Path,
     cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
     let mut path = PathBuf::from(document_root);
     let request_path = request.path().trim_start_matches('/');
@@ -1453,12 +1501,22 @@ fn generate_response_with_cache(
     }
 
     if path.is_file() {
-        serve_file_response(request, &path, cache_ttl_secs)
+        serve_file_response(
+            request,
+            &path,
+            cache_ttl_secs,
+            max_buffered_body_bytes,
+        )
     } else if path.is_dir() {
         // If it's a directory, try to serve index.html from that directory
         path.push("index.html");
         if path.is_file() {
-            serve_file_response(request, &path, cache_ttl_secs)
+            serve_file_response(
+                request,
+                &path,
+                cache_ttl_secs,
+                max_buffered_body_bytes,
+            )
         } else {
             generate_404_response(document_root)
         }
@@ -1471,6 +1529,7 @@ fn serve_file_response(
     request: &Request,
     path: &Path,
     cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
     let mut serving_path = path.to_path_buf();
     let mut content_encoding: Option<&'static str> = None;
@@ -1504,17 +1563,19 @@ fn serve_file_response(
     }
 
     // Pre-flight metadata check: refuse to buffer files larger than the
-    // crate-level cap. This prevents a single client from driving server
-    // RSS to file_size; future streaming work will lift the cap by
-    // writing directly to the wire instead of constructing a Vec<u8>.
+    // operator's configured cap. This prevents a single client from
+    // driving server RSS to file_size; future streaming work will lift
+    // the cap by writing directly to the wire instead of constructing
+    // a Vec<u8>.
     let serving_metadata =
         fs::metadata(&serving_path).map_err(ServerError::from)?;
-    if serving_metadata.len() > MAX_BUFFERED_BODY_BYTES {
+    if serving_metadata.len() > max_buffered_body_bytes {
         return Err(ServerError::Custom(format!(
             "file exceeds in-memory serve cap ({} > {} bytes); \
-             streaming response support is planned for v0.1",
+             override via ServerBuilder::max_buffered_body_bytes or \
+             wait for v0.1 streaming",
             serving_metadata.len(),
-            MAX_BUFFERED_BODY_BYTES
+            max_buffered_body_bytes
         )));
     }
     let contents = fs::read(&serving_path)?;
@@ -2988,6 +3049,7 @@ mod tests {
             root.path(),
             &fs::canonicalize(root.path()).expect("canonicalize"),
             None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
         )
         .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
@@ -3019,6 +3081,7 @@ mod tests {
             root.path(),
             &fs::canonicalize(root.path()).expect("canonicalize"),
             None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
         )
         .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
@@ -3048,6 +3111,7 @@ mod tests {
             root.path(),
             &fs::canonicalize(root.path()).expect("canonicalize"),
             None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
         )
         .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
@@ -3072,6 +3136,7 @@ mod tests {
             root.path(),
             &fs::canonicalize(root.path()).expect("canonicalize"),
             Some(600),
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
         )
         .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
