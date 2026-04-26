@@ -229,7 +229,11 @@ fn parse_request_from_bytes(
         if line.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':') {
+        // SIMD ':' search via memchr; same rationale as src/request.rs.
+        let bytes = line.as_bytes();
+        if let Some(colon) = memchr::memchr(b':', bytes) {
+            let (name, value) = line.split_at(colon);
+            let value = &value[1..];
             headers.push((
                 name.trim().to_ascii_lowercase(),
                 value.trim().to_string(),

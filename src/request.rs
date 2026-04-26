@@ -343,12 +343,23 @@ impl Request {
                     "Header line too long",
                 ));
             }
-            let (name, value) =
-                trimmed.split_once(':').ok_or_else(|| {
+            // memchr finds the first ':' via SIMD (NEON on Apple
+            // Silicon, AVX2 on x86_64). For typical 12–40 byte header
+            // lines the win is small; for longer lines (cookies,
+            // user-agent) it's measurable.
+            let bytes = trimmed.as_bytes();
+            let colon =
+                memchr::memchr(b':', bytes).ok_or_else(|| {
                     ServerError::invalid_request(
                         "Malformed header line",
                     )
                 })?;
+            // SAFETY: `colon` is an index returned by memchr inside
+            // `bytes`, which is the byte view of the `&str` `trimmed`.
+            // ASCII ':' is exactly one UTF-8 byte, so the split lands
+            // on a UTF-8 boundary.
+            let (name, value) = trimmed.split_at(colon);
+            let value = &value[1..];
             if headers.len() >= MAX_HEADER_COUNT {
                 return Err(ServerError::invalid_request(
                     "Too many request headers",

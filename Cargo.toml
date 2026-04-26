@@ -33,6 +33,7 @@ env_logger = { version = "0.11", optional = true } # Optional logging with envir
 euxis-commons = { version = "0.0.2", default-features = false, features = ["error", "logging", "time"] }
 ctrlc = "3.4"                               # Signal handling for graceful shutdown
 crossbeam-channel = "0.5"                   # Lock-free MPMC channel for the worker thread pool hot path
+memchr = "2.8"                              # SIMD byte search for HTTP header parsing (NEON / AVX2)
 regex = "1.11"                              # Runtime custom language pattern support
 tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
 tracing = { version = "0.1", optional = true }     # Structured logging

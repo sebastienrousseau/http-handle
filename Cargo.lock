@@ -606,6 +606,7 @@ dependencies = [
  "http",
  "libc",
  "log",
+ "memchr",
  "notify",
  "predicates",
  "proptest",
