@@ -226,6 +226,13 @@ name = "server_benchmark"                   # Name of the benchmark
 harness = false                             # Disable the default benchmark harness (used by Criterion)
 
 [[bench]]
+# Sub-µs micro-benchmarks for the public hot-path API (Request::header,
+# Response::set_connection_header). Targets in-process measurement
+# resolution that the TCP roundtrip benches drown out.
+name = "micro_benchmark"
+harness = false
+
+[[bench]]
 # Async perf_server bench — single-client and concurrent variants exercising
 # the high-perf accept loop and the tokio::fs hot path.
 name = "perf_server_benchmark"
