@@ -5,6 +5,13 @@
 // `deny` rather than `forbid` so those targeted exceptions actually
 // compile under Rust 2024.
 #![deny(unsafe_code)]
+// Rustdoc hygiene: catch broken intra-doc links, bare URLs, and
+// unindented examples at doc-build time so doc rot is loud rather
+// than silent. `missing_docs` is already enforced by the rust lint
+// section in Cargo.toml.
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::bare_urls)]
+#![deny(rustdoc::invalid_html_tags)]
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2023 - 2026 HTTP Handle
 
