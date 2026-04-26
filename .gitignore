@@ -12,3 +12,4 @@ tarpaulin-report.html
 # Cargo.lock is committed so cargo audit and reproducible builds work
 # in CI. Per the Rust 2024 guidance, libraries are encouraged to commit
 # their lock file as well.
+dhat-heap.json
