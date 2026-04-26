@@ -14,7 +14,10 @@ use crate::request::Request;
 use crate::response::Response;
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use crate::server::{Server, build_response_for_request_with_metrics};
+use crate::server::{
+    ConnectionPolicy, KEEPALIVE_IDLE_TIMEOUT, MAX_KEEPALIVE_REQUESTS,
+    Server, build_response_for_request_with_metrics,
+};
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
@@ -160,36 +163,63 @@ async fn handle_async_connection(
     // Disable Nagle so header+body are not held by the kernel waiting
     // for a delayed ACK on small payloads.
     let _ = stream.set_nodelay(true);
-    let timeout_dur =
+    let request_timeout =
         server.request_timeout().unwrap_or(Duration::from_secs(30));
 
-    let mut buffer = vec![0_u8; 16 * 1024];
-    let read = timeout(timeout_dur, stream.read(&mut buffer))
+    // HTTP/1.1 persistent-connection loop. The first request gets the
+    // configured per-request timeout; subsequent requests on the same
+    // TCP connection get the tighter idle timeout so an inactive client
+    // is reaped promptly without holding the inflight permit. Re-uses
+    // ConnectionPolicy from the sync path so HTTP/1.0 and explicit
+    // `Connection: close` semantics match across server entry points.
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        let read_deadline = if i == 0 {
+            request_timeout
+        } else {
+            KEEPALIVE_IDLE_TIMEOUT
+        };
+        let mut buffer = vec![0_u8; 16 * 1024];
+        let read = match timeout(
+            read_deadline,
+            stream.read(&mut buffer),
+        )
         .await
-        .map_err(|_| ServerError::invalid_request("request timeout"))?
-        .map_err(ServerError::from)?;
+        {
+            Ok(Ok(0)) => return Ok(()), // peer FIN
+            Ok(Ok(n)) => n,
+            Ok(Err(_)) | Err(_) => return Ok(()), // read error or idle timeout
+        };
+        buffer.truncate(read);
 
-    if read == 0 {
-        return Ok(());
+        let request = parse_request_from_bytes(&buffer)?;
+        let policy = ConnectionPolicy::from_request(&request);
+
+        if try_send_static_file_fast_path(
+            &mut stream,
+            server,
+            &request,
+            limits.sendfile_threshold_bytes,
+            policy,
+        )
+        .await?
+        {
+            if policy == ConnectionPolicy::Close {
+                return Ok(());
+            }
+            continue;
+        }
+
+        let mut response =
+            build_response_for_request_with_metrics(server, &request);
+        response.set_connection_header(policy.header_value());
+        if send_response_async(&mut stream, &response).await.is_err() {
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
     }
-    buffer.truncate(read);
-
-    let request = parse_request_from_bytes(&buffer)?;
-
-    if try_send_static_file_fast_path(
-        &mut stream,
-        server,
-        &request,
-        limits.sendfile_threshold_bytes,
-    )
-    .await?
-    {
-        return Ok(());
-    }
-
-    let response =
-        build_response_for_request_with_metrics(server, &request);
-    send_response_async(&mut stream, &response).await
+    Ok(())
 }
 
 #[cfg(feature = "high-perf")]
@@ -310,6 +340,7 @@ async fn try_send_static_file_fast_path(
     server: &Server,
     request: &Request,
     sendfile_threshold_bytes: u64,
+    policy: ConnectionPolicy,
 ) -> Result<bool, ServerError> {
     if request.method() != "GET" && request.method() != "HEAD" {
         return Ok(false);
@@ -347,7 +378,8 @@ async fn try_send_static_file_fast_path(
     }
 
     let mut head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: close\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: {}\r\n",
+        policy.header_value()
     );
     for (name, value) in headers {
         head.push_str(name);
@@ -785,6 +817,7 @@ mod tests {
                 &server_clone,
                 &request,
                 u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("send")
@@ -826,6 +859,7 @@ mod tests {
                 &server_clone,
                 &request_head,
                 u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("send")
@@ -873,7 +907,8 @@ mod tests {
                 &mut server_stream,
                 &server,
                 &post_req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("ok")
@@ -891,7 +926,8 @@ mod tests {
                 &mut server_stream,
                 &server,
                 &range_req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("ok")
@@ -1107,7 +1143,8 @@ mod tests {
                 &mut server_stream,
                 &server,
                 &req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("served")
@@ -1165,6 +1202,7 @@ mod tests {
             &server,
             &request,
             u64::MAX,
+            ConnectionPolicy::Close,
         )
         .await
         .expect("missing file should map to false");
@@ -1416,6 +1454,7 @@ mod tests {
             &server,
             &request,
             0,
+            ConnectionPolicy::Close,
         )
         .await
         .expect("served");

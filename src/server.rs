@@ -1080,14 +1080,15 @@ fn send_service_unavailable(mut stream: TcpStream) -> io::Result<()> {
 /// connection before the server forces a close. Bounds resource use
 /// per client and prevents a single connection from monopolising a
 /// worker indefinitely.
-const MAX_KEEPALIVE_REQUESTS: usize = 100;
+pub(crate) const MAX_KEEPALIVE_REQUESTS: usize = 100;
 
 /// Idle timeout applied to the read side of a kept-alive connection
 /// while waiting for the next request. Smaller than the per-request
 /// timeout so an idle client is reaped promptly without affecting the
 /// time budget for a request that's actually in flight. Industry
 /// defaults sit at 5–15 s; 5 s is a reasonable middle ground.
-const KEEPALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const KEEPALIVE_IDLE_TIMEOUT: Duration =
+    Duration::from_secs(5);
 
 /// Maximum file size, in bytes, that the in-memory `serve_file_response`
 /// path will fully buffer before sending. Files larger than this cap
@@ -1114,20 +1115,20 @@ const MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
 ///
 /// Errors and missing-parse cases always close.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ConnectionPolicy {
+pub(crate) enum ConnectionPolicy {
     KeepAlive,
     Close,
 }
 
 impl ConnectionPolicy {
-    fn header_value(self) -> &'static str {
+    pub(crate) fn header_value(self) -> &'static str {
         match self {
             ConnectionPolicy::KeepAlive => "keep-alive",
             ConnectionPolicy::Close => "close",
         }
     }
 
-    fn from_request(request: &Request) -> Self {
+    pub(crate) fn from_request(request: &Request) -> Self {
         let connection_header = request
             .header("connection")
             .map(|h| h.trim().to_ascii_lowercase());
