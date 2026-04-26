@@ -244,15 +244,15 @@ impl Request {
     ///
     /// ```rust
     /// use http_handle::request::Request;
-    /// use std::collections::HashMap;
     ///
-    /// let mut headers = HashMap::new();
-    /// headers.insert("content-type".to_string(), "text/plain".to_string());
     /// let request = Request {
     ///     method: "GET".to_string(),
     ///     path: "/".to_string(),
     ///     version: "HTTP/1.1".to_string(),
-    ///     headers,
+    ///     headers: vec![(
+    ///         "content-type".to_string(),
+    ///         "text/plain".to_string(),
+    ///     )],
     /// };
     /// assert_eq!(request.header("Content-Type"), Some("text/plain"));
     /// ```
