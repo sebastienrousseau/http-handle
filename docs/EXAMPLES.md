@@ -35,6 +35,7 @@ cargo run --example <name> [--features "..."]
 | Thread/connection pooling behavior | `pooling_performance_example` |
 | Server policy scenario | `scenario_server_policies` |
 | External benchmark target | `benchmark_target` |
+| Heap-profile harness (dhat) | `dhat_alloc_profile` |
 
 ## Feature-Gated Modules
 

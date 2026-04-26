@@ -70,6 +70,10 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+For a complete capability-to-example matrix (basic server, builder pattern,
+graceful shutdown, feature-gated modules like async / HTTP/2 / streaming /
+enterprise auth), see [docs/EXAMPLES.md](docs/EXAMPLES.md).
+
 ---
 
 ## Development
