@@ -516,6 +516,15 @@ async fn try_sendfile_unix(
     while sent < len {
         let remaining = (len - sent) as usize;
         let chunk = remaining.min(1 << 20);
+        // Safety: both fds are owned for the duration of this call —
+        // `stream` is borrowed from the caller (the TcpStream lives on
+        // the stack frame above) and `file` is the local std::fs::File
+        // we just opened. `offset` is a local `libc::off_t` we write
+        // through. `chunk` is bounded above by `len - sent` and below
+        // by 1 (the loop guard `sent < len`). The kernel either fills
+        // the requested transfer or returns the count actually sent;
+        // we handle the negative-rc and EAGAIN cases below.
+        #[allow(unsafe_code)]
         let rc = unsafe {
             libc::sendfile(
                 stream.as_raw_fd(),

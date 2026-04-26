@@ -317,6 +317,10 @@ impl<P: SecretProvider> TenantScopedSecrets<P> {
 }
 
 #[cfg(test)]
+// Test-only env-var mutations (`std::env::set_var` / `remove_var`) need
+// `unsafe` under Rust 2024. Each call site below is a paired write +
+// cleanup inside a single test scope and is documented at the use site.
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
 

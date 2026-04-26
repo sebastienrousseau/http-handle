@@ -1,4 +1,10 @@
-#![forbid(unsafe_code)]
+// Crate-wide unsafe policy: deny by default. Specific authorized sites
+// (libc::sendfile in perf_server::try_sendfile_unix, process-env mutation
+// in tenant_isolation and runtime_autotune tests) carry an explicit
+// `#[allow(unsafe_code)]` attribute with a justifying comment. Using
+// `deny` rather than `forbid` so those targeted exceptions actually
+// compile under Rust 2024.
+#![deny(unsafe_code)]
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2023 - 2026 HTTP Handle
 
