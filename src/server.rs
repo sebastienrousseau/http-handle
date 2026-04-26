@@ -1107,9 +1107,11 @@ const MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Connection lifecycle decision derived from the request and HTTP
 /// version per RFC 7230 §6.3:
+///
 /// * HTTP/1.1: keep-alive by default; close on explicit `Connection: close`.
 /// * HTTP/1.0: close by default; keep-alive only on explicit
 ///   `Connection: keep-alive`.
+///
 /// Errors and missing-parse cases always close.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConnectionPolicy {
@@ -2779,8 +2781,8 @@ mod tests {
         let temp_dir = setup_test_directory();
         let root = temp_dir.path();
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push(("range".to_string(), "bytes=0-4".to_string()));
+        let headers =
+            vec![("range".to_string(), "bytes=0-4".to_string())];
         let range_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2798,8 +2800,7 @@ mod tests {
             .map(|(_, value)| value.clone())
             .expect("etag");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push(("if-none-match".to_string(), etag));
+        let headers = vec![("if-none-match".to_string(), etag)];
         let conditional_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2970,11 +2971,10 @@ mod tests {
         let file = root.path().join("index.html.zst");
         fs::write(&file, b"zstd-data").expect("write");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push((
+        let headers = vec![(
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        ));
+        )];
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -3002,11 +3002,10 @@ mod tests {
         fs::write(root.path().join("index.html.br"), b"brotli-encoded")
             .expect("write br");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push((
+        let headers = vec![(
             "accept-encoding".to_string(),
             "br, gzip".to_string(),
-        ));
+        )];
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -3034,9 +3033,8 @@ mod tests {
         fs::write(root.path().join("index.html.gz"), b"gzdata")
             .expect("write gz");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers
-            .push(("accept-encoding".to_string(), "gzip".to_string()));
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -3305,7 +3303,7 @@ mod tests {
         // Retry briefly until the server has bound.
         let mut stream = None;
         for _ in 0..50 {
-            if let Ok(s) = TcpStream::connect(&addr.to_string()) {
+            if let Ok(s) = TcpStream::connect(addr.to_string()) {
                 stream = Some(s);
                 break;
             }
@@ -3342,7 +3340,7 @@ mod tests {
 
         let mut stream = None;
         for _ in 0..50 {
-            if let Ok(s) = TcpStream::connect(&addr.to_string()) {
+            if let Ok(s) = TcpStream::connect(addr.to_string()) {
                 stream = Some(s);
                 break;
             }

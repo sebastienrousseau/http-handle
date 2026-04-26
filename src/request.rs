@@ -640,9 +640,7 @@ mod tests {
     #[test]
     fn test_header_line_too_long_returns_error() {
         let mut req = Vec::from("GET / HTTP/1.1\r\nX: ");
-        req.extend(
-            std::iter::repeat(b'A').take(MAX_HEADER_LINE_LENGTH),
-        );
+        req.extend(std::iter::repeat_n(b'A', MAX_HEADER_LINE_LENGTH));
         req.extend_from_slice(b"\r\n\r\n");
         let err = run_request_bytes(req).unwrap_err();
         assert!(

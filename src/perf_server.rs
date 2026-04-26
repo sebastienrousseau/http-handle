@@ -683,9 +683,8 @@ mod tests {
         let base = dir.path().join("index.html");
         std::fs::write(&base, "x").expect("base");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers
-            .push(("accept-encoding".to_string(), "gzip".to_string()));
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req_gz = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -700,11 +699,10 @@ mod tests {
 
         std::fs::write(format!("{}.zst", base.display()), "x")
             .expect("zst");
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push((
+        let headers = vec![(
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        ));
+        )];
         let req_zst = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -717,11 +715,10 @@ mod tests {
 
         std::fs::write(format!("{}.br", base.display()), "x")
             .expect("br");
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push((
+        let headers = vec![(
             "accept-encoding".to_string(),
             "br,zstd,gzip".to_string(),
-        ));
+        )];
         let req_br = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -732,9 +729,8 @@ mod tests {
         assert!(p.ends_with("index.html.br"));
         assert_eq!(e, Some("br"));
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers
-            .push(("accept-encoding".to_string(), "gzip".to_string()));
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req_gz_missing = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -883,8 +879,7 @@ mod tests {
             .expect("ok")
         );
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers.push(("range".into(), "bytes=0-3".into()));
+        let headers = vec![("range".into(), "bytes=0-3".into())];
         let range_req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -1087,9 +1082,8 @@ mod tests {
             .build()
             .expect("server");
 
-        let mut headers: Vec<(String, String)> = Vec::new();
-        headers
-            .push(("accept-encoding".to_string(), "gzip".to_string()));
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -1454,9 +1448,9 @@ mod tests {
                 .await
                 .expect("bind");
             let addr = listener.local_addr().expect("addr");
-            let _ = tokio::spawn(async move {
+            drop(tokio::spawn(async move {
                 tokio::net::TcpStream::connect(addr).await.expect("c")
-            });
+            }));
             let (server_stream, _) =
                 listener.accept().await.expect("accept");
             let sent = try_sendfile_unix(&server_stream, &path, 1)
