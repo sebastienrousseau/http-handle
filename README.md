@@ -76,6 +76,34 @@ enterprise auth), see [docs/EXAMPLES.md](docs/EXAMPLES.md).
 
 ---
 
+## Migrating from 0.0.4 → 0.0.5
+
+`Request::headers` changed from `HashMap<String, String>` to `Vec<(String, String)>` for lower per-request allocation pressure and faster lookup at typical header counts. The `Request::header(name)` accessor is unchanged; only direct construction and iteration are affected.
+
+```rust,ignore
+// before (0.0.4)
+let mut headers = std::collections::HashMap::new();
+headers.insert("content-type".to_string(), "text/plain".to_string());
+let request = Request {
+    method: "GET".into(),
+    path: "/".into(),
+    version: "HTTP/1.1".into(),
+    headers,
+};
+
+// after (0.0.5)
+let request = Request {
+    method: "GET".into(),
+    path: "/".into(),
+    version: "HTTP/1.1".into(),
+    headers: vec![("content-type".into(), "text/plain".into())],
+};
+```
+
+See [CHANGELOG.md](CHANGELOG.md#005---2026-04-26) for the full breaking-change list.
+
+---
+
 ## Development
 
 ```bash
