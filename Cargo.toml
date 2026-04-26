@@ -71,6 +71,7 @@ assert_fs = "1.1"                           # File system assertion library for 
 predicates = "3.1"                          # Predicate assertions for test conditions
 criterion = "0.8"                           # Benchmarking library to test performance
 proptest = "1.6"                            # Property-based testing
+dhat = "0.3"                                # Heap profiling for the dhat_alloc_profile example
 
 # -----------------------------------------------------------------------------
 # Examples
@@ -206,6 +207,15 @@ path = "examples/scenario_server_policies.rs" # Path to the example file
 # Benchmark target binary for external load tools.
 name = "benchmark_target"                  # Name of the example
 path = "examples/benchmark_target.rs"      # Path to the example file
+
+[[example]]
+# dhat heap-profile harness — drives a synthetic load against the
+# perf_server async path with global dhat allocator instrumentation.
+# Run with `cargo run --release --example dhat_alloc_profile --features high-perf`
+# Output is written to ./dhat-heap.json; load with https://nnethercote.github.io/dh_view/dh_view.html
+name = "dhat_alloc_profile"
+path = "examples/dhat_alloc_profile.rs"
+required-features = ["high-perf"]
 
 # -----------------------------------------------------------------------------
 # Criterion Benchmark
