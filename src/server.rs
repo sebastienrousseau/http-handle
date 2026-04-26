@@ -1076,12 +1076,67 @@ fn send_service_unavailable(mut stream: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
+/// Maximum number of HTTP/1.1 requests served on a single keep-alive
+/// connection before the server forces a close. Bounds resource use
+/// per client and prevents a single connection from monopolising a
+/// worker indefinitely.
+const MAX_KEEPALIVE_REQUESTS: usize = 100;
+
+/// Idle timeout applied to the read side of a kept-alive connection
+/// while waiting for the next request. Smaller than the per-request
+/// timeout so an idle client is reaped promptly without affecting the
+/// time budget for a request that's actually in flight. Industry
+/// defaults sit at 5–15 s; 5 s is a reasonable middle ground.
+const KEEPALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Connection lifecycle decision derived from the request and HTTP
+/// version per RFC 7230 §6.3:
+/// * HTTP/1.1: keep-alive by default; close on explicit `Connection: close`.
+/// * HTTP/1.0: close by default; keep-alive only on explicit
+///   `Connection: keep-alive`.
+/// Errors and missing-parse cases always close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConnectionPolicy {
+    KeepAlive,
+    Close,
+}
+
+impl ConnectionPolicy {
+    fn header_value(self) -> &'static str {
+        match self {
+            ConnectionPolicy::KeepAlive => "keep-alive",
+            ConnectionPolicy::Close => "close",
+        }
+    }
+
+    fn from_request(request: &Request) -> Self {
+        let connection_header = request
+            .header("connection")
+            .map(|h| h.trim().to_ascii_lowercase());
+        match request.version() {
+            "HTTP/1.1" => match connection_header.as_deref() {
+                Some("close") => ConnectionPolicy::Close,
+                _ => ConnectionPolicy::KeepAlive,
+            },
+            _ => match connection_header.as_deref() {
+                Some("keep-alive") => ConnectionPolicy::KeepAlive,
+                _ => ConnectionPolicy::Close,
+            },
+        }
+    }
+}
+
 /// Handles a single client connection.
+///
+/// Implements HTTP/1.1 persistent connections (keep-alive) per RFC 7230:
+/// the loop reads requests on the same TCP stream until the client (or
+/// the server's response policy) signals close, an idle/read timeout
+/// fires, or [`MAX_KEEPALIVE_REQUESTS`] is reached.
 ///
 /// # Arguments
 ///
 /// * `stream` - A `TcpStream` representing the client connection.
-/// * `document_root` - A `PathBuf` representing the server's document root.
+/// * `server` - The configured `Server`, used for policy and document root.
 ///
 /// # Returns
 ///
@@ -1099,8 +1154,30 @@ pub(crate) fn handle_connection(
     stream.set_write_timeout(Some(timeout))?;
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
-    let response = build_response_for_stream(server, &stream, peer_ip);
-    response.send(&mut stream)?;
+
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        if i > 0 {
+            // Tighten the read side for subsequent requests on a
+            // persistent connection. The first request is free to use
+            // the configured request_timeout; an idle client between
+            // requests is reaped on KEEPALIVE_IDLE_TIMEOUT.
+            stream.set_read_timeout(Some(KEEPALIVE_IDLE_TIMEOUT))?;
+        }
+        let (mut response, policy) =
+            build_response_for_stream(server, &stream, peer_ip);
+        // Authoritative Connection header on the response. Overwrites
+        // anything `apply_response_policies` may have set; the policy
+        // decision sits closer to the wire than per-handler choices.
+        response.set_connection_header(policy.header_value());
+
+        if response.send(&mut stream).is_err() {
+            // Peer hung up mid-write — the keep-alive loop is over.
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -1135,8 +1212,21 @@ fn handle_connection_tracked(
     stream.set_write_timeout(Some(timeout))?;
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
-    let response = build_response_for_stream(server, &stream, peer_ip);
-    response.send(&mut stream)?;
+
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        if i > 0 {
+            stream.set_read_timeout(Some(KEEPALIVE_IDLE_TIMEOUT))?;
+        }
+        let (mut response, policy) =
+            build_response_for_stream(server, &stream, peer_ip);
+        response.set_connection_header(policy.header_value());
+        if response.send(&mut stream).is_err() {
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -1144,25 +1234,36 @@ fn build_response_for_stream(
     server: &Server,
     stream: &TcpStream,
     peer_ip: Option<IpAddr>,
-) -> Response {
+) -> (Response, ConnectionPolicy) {
     match Request::from_stream(stream) {
         Ok(request) => {
+            // Capture the keep-alive decision before consuming the
+            // request: rate-limited or metrics responses still honour
+            // the client's stated preference. Errors below override
+            // to Close because the parsing path was destabilised.
+            let policy = ConnectionPolicy::from_request(&request);
             if request.path() == "/metrics" && request.method() == "GET"
             {
-                return generate_metrics_response();
+                return (generate_metrics_response(), policy);
             }
             if let Some(ip) = peer_ip
                 && is_rate_limited(server, ip)
             {
                 let _ =
                     METRIC_RATE_LIMITED.fetch_add(1, Ordering::Relaxed);
-                return generate_too_many_requests_response();
+                return (generate_too_many_requests_response(), policy);
             }
-            build_response_for_request_with_metrics(server, &request)
+            (
+                build_response_for_request_with_metrics(
+                    server, &request,
+                ),
+                policy,
+            )
         }
-        Err(error) => {
-            response_from_error(&error, &server.document_root)
-        }
+        Err(error) => (
+            response_from_error(&error, &server.document_root),
+            ConnectionPolicy::Close,
+        ),
     }
 }
 
@@ -1851,7 +1952,27 @@ mod tests {
         });
 
         let mut client = TcpStream::connect(addr).expect("connect");
-        client.write_all(request).expect("write");
+        // Inject `Connection: close` if the test request didn't already
+        // include one. With HTTP/1.1 keep-alive on by default the
+        // server otherwise sits in the idle loop until KEEPALIVE_IDLE_TIMEOUT
+        // fires, dragging single-shot integration tests into multi-second
+        // territory. Tests that explicitly want keep-alive can include
+        // their own Connection header.
+        let request_text = std::str::from_utf8(request).unwrap_or("");
+        if request_text.to_ascii_lowercase().contains("connection:") {
+            client.write_all(request).expect("write");
+        } else {
+            // Splice "Connection: close\r\n" before the trailing CRLF
+            // that ends the headers section.
+            let with_close =
+                if let Some(idx) = request_text.rfind("\r\n\r\n") {
+                    let (head, tail) = request_text.split_at(idx);
+                    format!("{head}\r\nConnection: close{tail}")
+                } else {
+                    request_text.to_string()
+                };
+            client.write_all(with_close.as_bytes()).expect("write");
+        }
         let mut response = String::new();
         let _ = client.read_to_string(&mut response).expect("read");
         handle.join().expect("join");

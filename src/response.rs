@@ -108,6 +108,34 @@ impl Response {
         self.headers.push((name.to_string(), value.to_string()));
     }
 
+    /// Sets the `Connection` header to `value`, replacing any existing
+    /// `Connection` header (case-insensitive match).
+    ///
+    /// Used by the keep-alive loop to write the authoritative
+    /// connection lifecycle decision over whatever upstream policies
+    /// may have set. Operates on a single header name so the linear
+    /// retain is bounded by `headers.len()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::response::Response;
+    ///
+    /// let mut r = Response::new(200, "OK", Vec::new());
+    /// r.add_header("Connection", "close");
+    /// r.set_connection_header("keep-alive");
+    /// assert!(r.headers.iter().any(|(n, v)| {
+    ///     n.eq_ignore_ascii_case("Connection") && v == "keep-alive"
+    /// }));
+    /// ```
+    pub fn set_connection_header(&mut self, value: &str) {
+        self.headers.retain(|(name, _)| {
+            !name.eq_ignore_ascii_case("connection")
+        });
+        self.headers
+            .push(("Connection".to_string(), value.to_string()));
+    }
+
     /// Sends the response over the provided `Write` stream.
     ///
     /// This method writes the HTTP status line, headers, and body to the stream, ensuring
