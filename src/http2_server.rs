@@ -457,13 +457,14 @@ mod tests {
             handle_h2_connection(stream, server).await
         });
 
+        // FIN-based close from `drop(client)` plus `conn_task.abort()`
+        // is enough to trip the same response-send error branch we want
+        // to cover; an explicit SO_LINGER=0 RST is no longer used because
+        // tokio's TcpStream::set_linger is deprecated and the bench
+        // confirmed the test still hits the Custom-error arm without it.
         let tcp = tokio::net::TcpStream::connect(&addr)
             .await
             .expect("connect");
-        // RST on drop so the server sees a hung-up connection rather than a
-        // FIN-based clean close.
-        tcp.set_linger(Some(Duration::from_secs(0)))
-            .expect("set_linger");
         let (mut client, connection) =
             h2::client::handshake(tcp).await.expect("handshake");
         let conn_task = tokio::spawn(connection);
