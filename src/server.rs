@@ -1089,6 +1089,22 @@ const MAX_KEEPALIVE_REQUESTS: usize = 100;
 /// defaults sit at 5–15 s; 5 s is a reasonable middle ground.
 const KEEPALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Maximum file size, in bytes, that the in-memory `serve_file_response`
+/// path will fully buffer before sending. Files larger than this cap
+/// are rejected with `503 Service Unavailable` rather than allowed to
+/// drive the server's RSS to N × file_size on N concurrent requests.
+///
+/// Truly large files need a streaming response path that writes
+/// directly to the wire instead of materialising a `Vec<u8>` body.
+/// `streaming::ChunkStream` provides the building block; wiring it
+/// into `Response` requires a `ResponseBody` enum which is a public
+/// API change parked for v0.1.
+///
+/// 64 MiB covers the vast majority of static-asset workloads (HTML,
+/// JS bundles, images, small video previews) without requiring a
+/// configuration knob.
+const MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Connection lifecycle decision derived from the request and HTTP
 /// version per RFC 7230 §6.3:
 /// * HTTP/1.1: keep-alive by default; close on explicit `Connection: close`.
@@ -1484,6 +1500,20 @@ fn serve_file_response(
         }
     }
 
+    // Pre-flight metadata check: refuse to buffer files larger than the
+    // crate-level cap. This prevents a single client from driving server
+    // RSS to file_size; future streaming work will lift the cap by
+    // writing directly to the wire instead of constructing a Vec<u8>.
+    let serving_metadata =
+        fs::metadata(&serving_path).map_err(ServerError::from)?;
+    if serving_metadata.len() > MAX_BUFFERED_BODY_BYTES {
+        return Err(ServerError::Custom(format!(
+            "file exceeds in-memory serve cap ({} > {} bytes); \
+             streaming response support is planned for v0.1",
+            serving_metadata.len(),
+            MAX_BUFFERED_BODY_BYTES
+        )));
+    }
     let contents = fs::read(&serving_path)?;
     let metadata = fs::metadata(path)?;
     let etag = compute_etag(&metadata);
