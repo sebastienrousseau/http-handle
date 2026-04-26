@@ -251,7 +251,13 @@ async fn send_response_async(
     stream: &mut tokio::net::TcpStream,
     response: &Response,
 ) -> Result<(), ServerError> {
-    let mut header = format!(
+    use std::fmt::Write as _;
+    // Pre-size for typical response sizes; growth is rare. Mirrors P0.A
+    // on the sync path: no intermediate format!() allocations on each
+    // header line — write! goes directly into the existing buffer.
+    let mut header = String::with_capacity(256);
+    let _ = write!(
+        &mut header,
         "HTTP/1.1 {} {}\r\n",
         response.status_code, response.status_text
     );
@@ -265,13 +271,14 @@ async fn send_response_async(
         if name.eq_ignore_ascii_case("connection") {
             has_connection = true;
         }
-        header.push_str(&format!("{}: {}\r\n", name, value));
+        let _ = write!(&mut header, "{}: {}\r\n", name, value);
     }
     if !has_content_length {
-        header.push_str(&format!(
+        let _ = write!(
+            &mut header,
             "Content-Length: {}\r\n",
             response.body.len()
-        ));
+        );
     }
     if !has_connection {
         header.push_str("Connection: close\r\n");
