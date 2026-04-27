@@ -12,8 +12,12 @@
 # - cargo build of the workspace must be possible from the project root.
 #
 # Usage:
-#   ./scripts/load_test.sh                # high-perf mode, 30 s, c=256
-#   ./scripts/load_test.sh sync 60 128    # sync server, 60 s, 128 conns
+#   ./scripts/load_test.sh                  # high-perf mode, 30 s, c=256
+#   ./scripts/load_test.sh sync 60 128      # sync server, 60 s, 128 conns
+#   ./scripts/load_test.sh high-perf-mt     # multi-thread async runtime
+#
+# Set HTTP_HANDLE_WORKERS=N to pin worker count for high-perf-mt
+# (defaults to logical CPU count).
 #
 # Updates docs/PERFORMANCE.md with the latest numbers.
 
@@ -47,13 +51,13 @@ echo '404' > "$ROOT/404/index.html"
 
 # Build with all relevant features so the mode arg actually resolves.
 cargo build --release --example benchmark_target \
-    --features 'async,high-perf,http2' >/dev/null
+    --features 'async,high-perf,high-perf-multi-thread,http2' >/dev/null
 
 HTTP_HANDLE_ADDR="$ADDR" \
 HTTP_HANDLE_ROOT="$ROOT" \
 HTTP_HANDLE_MODE="$MODE" \
     cargo run --release --example benchmark_target \
-        --features 'async,high-perf,http2' >/tmp/load_test_server.log 2>&1 &
+        --features 'async,high-perf,high-perf-multi-thread,http2' >/tmp/load_test_server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$ROOT"' EXIT
 

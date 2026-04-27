@@ -4,26 +4,30 @@ External `bombardier` load test against the `benchmark_target` example. Driver: 
 
 These are end-to-end numbers from an external HTTP client driving real TCP keep-alive load — complementary to the criterion in-process benches, which measure single-iter cost in isolation.
 
-## Headline (256-connection keep-alive, 15 s, small static body)
+## Headline (256-connection keep-alive, 30 s, small static body)
 
 | Mode | Req/s avg | Lat p50 | Lat p90 | Lat p99 | 4xx/5xx |
 |---|---|---|---|---|---|
-| `sync` (`Server::start`) | **29,944** | 8.25 ms | 12.67 ms | 27.56 ms | 0 / 0 |
-| `high-perf` (`start_high_perf`) | 10,626 | 23.02 ms | 27.93 ms | 39.35 ms | 0 / 0 |
+| `sync` (`Server::start`) | **29,164** | 7.63 ms | 14.80 ms | 35.94 ms | 0 / 0 |
+| `high-perf` (`start_high_perf`, current-thread) | 9,583 | 25.67 ms | 30.45 ms | 51.32 ms | 0 / 0 |
+| `high-perf-mt` (`start_high_perf_multi_thread`, default workers) | 8,914 | 26.24 ms | 39.67 ms | 77.45 ms | 0 / 0 |
+| `high-perf-mt` (workers = 4) | 5,991 | 33.13 ms | 70.59 ms | 182.44 ms | 0 / 0 |
 
-Both modes ran zero errors across the test window (447 k requests for sync, 159 k for high-perf).
+All modes ran zero errors across the test window (867 k requests for sync, 287 k high-perf, 267 k high-perf-mt default).
 
-## Why does sync beat high-perf here?
+## Why does sync beat the async modes on this benchmark?
 
-The `benchmark_target` example builds its tokio runtime with `Builder::new_current_thread()` — single-threaded async. Under 256 concurrent keep-alive connections, all of those connections cooperatively share **one** OS thread for the async accept loop, request parse, response build, and write paths. The sync server spawns 256 OS threads; macOS's scheduler distributes them across all 8 cores in parallel.
+The hot path of `benchmark_target` is essentially "accept → parse 38-byte response → write back" — there is no I/O wait per request. Under those conditions the per-future polling overhead of tokio's reactor outweighs anything async buys you, and the sync `Server::start` thread-per-connection model just runs the request handler straight-line on whichever core macOS scheduled the OS thread on.
 
-This is a runtime-config artefact, not a defect in `perf_server`:
+Adding tokio's multi-thread runtime (`high-perf-mt`) does **not** close the gap on this benchmark. With 8 worker threads it lands a touch below the current-thread variant; constraining to 4 workers makes it worse. The dominant cost under high concurrent keep-alive on a CPU-bound static workload is contention on the inflight `Semaphore` and cross-core scheduling overhead — neither of which scales by adding workers.
 
-- **Tokio's `rt-multi-thread` feature is not currently enabled** in this crate's `tokio` dependency declaration. Switching the benchmark target to `new_multi_thread()` would require adding `rt-multi-thread` to the feature list and exposes whatever upstream cost that brings in.
-- **Single-threaded async wins under different workloads.** Lots of small short-lived connections (no keep-alive), high I/O wait per request (DB calls), or memory-constrained hosts where 256 OS threads is not affordable — those favour the async path.
+This is workload-shape, not a defect in `perf_server`:
+
+- **Single-threaded async wins under different workloads.** Lots of small short-lived connections (no keep-alive), high I/O wait per request (DB / upstream calls), or memory-constrained hosts where 256 OS threads is not affordable — those favour the async path.
+- **`high-perf-mt` is the right primitive for mixed I/O.** When request handlers do real async work (await on a backend, run a slow downstream, multiplex across many sockets), the multi-thread runtime spreads that work across cores. On a pure static-file hot path it's overhead.
 - **Real production deployments behind a load balancer** usually pin one process per CPU and run `current_thread` per process anyway. The sync-thread-per-connection model doesn't horizontal-scale that pattern as cleanly.
 
-The takeaway: pick the mode that matches your deployment shape, not the bench winner. v0.0.5 ships both.
+The takeaway: pick the mode that matches your deployment shape, not the bench winner. v0.0.5 ships all three (`sync`, `high-perf`, `high-perf-mt`) so you can pick.
 
 ## Re-running the harness
 
@@ -33,7 +37,11 @@ The takeaway: pick the mode that matches your deployment shape, not the bench wi
 
 # Override mode / duration / concurrency.
 ./scripts/load_test.sh sync 60 128
+./scripts/load_test.sh high-perf-mt 30 256
 ./scripts/load_test.sh http2 30 64
+
+# Pin worker thread count for high-perf-mt.
+HTTP_HANDLE_WORKERS=4 ./scripts/load_test.sh high-perf-mt
 ```
 
 Pre-conditions: `bombardier` on `$PATH` (`brew install bombardier` on macOS).

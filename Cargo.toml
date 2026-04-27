@@ -263,6 +263,7 @@ optimized = []                              # Zero-cost optimized lookups
 observability = ["dep:tracing", "dep:tracing-subscriber"] # Structured tracing/observability
 http2 = ["dep:tokio", "dep:h2", "dep:http", "dep:bytes"] # HTTP/2 server foundation (h2c)
 high-perf = ["dep:tokio", "dep:libc"]      # Async-first serving with backpressure and sendfile fast path
+high-perf-multi-thread = ["high-perf", "tokio/rt-multi-thread"]  # Multi-threaded async runtime for start_high_perf_multi_thread
 tls = []                                    # TLS and mTLS configuration primitives
 auth = []                                   # Auth middleware (API key + JWT parsing hook)
 config = ["dep:notify", "dep:arc-swap", "dep:toml"] # Runtime profiles + hot reload

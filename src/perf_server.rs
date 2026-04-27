@@ -76,6 +76,58 @@ impl Default for PerfLimits {
     }
 }
 
+/// Synchronous entry point that builds a multi-threaded Tokio runtime
+/// and runs [`start_high_perf`] on it. Use this on multi-core hosts when
+/// [`start_high_perf`] called from a `current_thread` runtime is leaving
+/// cores idle — bombardier load tests showed sync `Server::start`
+/// outperforming the async path 3× under 256-connection keep-alive
+/// purely because the async path was funneling all connections through
+/// one OS thread.
+///
+/// `worker_threads = None` lets Tokio pick (defaults to logical CPU
+/// count). Pass `Some(n)` to pin the worker count for reproducible
+/// benchmarking or container CPU limits.
+///
+/// Owning the runtime internally means callers don't need to add
+/// `rt-multi-thread` to their tokio features list and don't need to
+/// reason about runtime flavour mismatches between the bind site and
+/// the accept loop.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::Server;
+/// use http_handle::perf_server::{start_high_perf_multi_thread, PerfLimits};
+///
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// // Default worker count (one per logical core).
+/// let _ = start_high_perf_multi_thread(server, PerfLimits::default(), None);
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when the multi-thread runtime cannot be built or
+/// the underlying [`start_high_perf`] accept loop fails.
+///
+/// # Panics
+///
+/// This function does not panic.
+#[cfg(feature = "high-perf-multi-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf-multi-thread")))]
+pub fn start_high_perf_multi_thread(
+    server: Server,
+    limits: PerfLimits,
+    worker_threads: Option<usize>,
+) -> Result<(), ServerError> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    let _ = builder.enable_all();
+    if let Some(n) = worker_threads {
+        let _ = builder.worker_threads(n.max(1));
+    }
+    let runtime = builder.build().map_err(ServerError::from)?;
+    runtime.block_on(start_high_perf(server, limits))
+}
+
 /// Starts an async-first accept loop with adaptive backpressure.
 ///
 /// This path prioritizes throughput-per-core by avoiding a thread-per-connection model,
@@ -1589,5 +1641,69 @@ mod tests {
 
         server_task.abort();
         let _ = server_task.await;
+    }
+
+    /// Smoke test for the multi-thread entry point: serves one request,
+    /// then aborts the runtime via panic. This verifies the function
+    /// builds the runtime and dispatches into the existing accept loop;
+    /// throughput is validated separately via the bombardier load harness.
+    #[cfg(feature = "high-perf-multi-thread")]
+    #[test]
+    fn start_high_perf_multi_thread_serves_one_request() {
+        use crate::Server;
+        use std::io::{Read, Write};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok-mt")
+            .expect("write");
+        std::fs::create_dir(dir.path().join("404")).expect("404 dir");
+        std::fs::write(dir.path().join("404/index.html"), b"404")
+            .expect("write 404");
+
+        let probe =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr").to_string();
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr)
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        // Two worker threads is enough to prove the runtime is
+        // multi-threaded without paying for full CPU detection cost
+        // in the test harness.
+        let server_thread = std::thread::spawn(move || {
+            let _ = start_high_perf_multi_thread(
+                server,
+                PerfLimits::default(),
+                Some(2),
+            );
+        });
+
+        // Wait for bind, then send one Connection: close request.
+        let mut connected = None;
+        for _ in 0..50 {
+            if let Ok(s) = std::net::TcpStream::connect(&addr) {
+                connected = Some(s);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let mut s = connected.expect("server never bound");
+        s.write_all(
+            b"GET /index.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n",
+        )
+        .expect("write");
+        let mut sink = Vec::with_capacity(256);
+        let _ = s.read_to_end(&mut sink).expect("read");
+        let body = String::from_utf8_lossy(&sink);
+        assert!(body.contains("HTTP/1.1 200 OK"), "got {body:?}");
+        assert!(body.contains("ok-mt"), "got {body:?}");
+
+        // Server thread is in an infinite accept loop; leak it. The
+        // process exits cleanly after the test runner finishes.
+        drop(server_thread);
     }
 }

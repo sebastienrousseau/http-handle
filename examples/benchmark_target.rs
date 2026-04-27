@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "sync" => server.start()?,
         "async" => run_async(server)?,
         "high-perf" => run_high_perf(server)?,
+        "high-perf-mt" => run_high_perf_mt(server)?,
         "http2" => run_http2(server)?,
         other => {
             return Err(format!("unsupported mode: {other}").into());
@@ -92,6 +93,52 @@ fn run_high_perf(
         let _ = server;
         Err("enable feature 'high-perf' for HTTP_HANDLE_MODE=high-perf"
             .into())
+    }
+}
+
+fn run_high_perf_mt(
+    server: Server,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "high-perf-multi-thread")]
+    {
+        let limits = {
+            #[cfg(feature = "autotune")]
+            {
+                if std::env::var("HTTP_HANDLE_AUTOTUNE").ok().as_deref()
+                    == Some("1")
+                {
+                    let profile =
+                        http_handle::runtime_autotune::detect_host_profile();
+                    http_handle::runtime_autotune::RuntimeTuneRecommendation::from_profile(profile).into_perf_limits()
+                } else {
+                    http_handle::perf_server::PerfLimits {
+                        max_inflight: 512,
+                        max_queue: 2048,
+                        sendfile_threshold_bytes: 64 * 1024,
+                    }
+                }
+            }
+            #[cfg(not(feature = "autotune"))]
+            {
+                http_handle::perf_server::PerfLimits {
+                    max_inflight: 512,
+                    max_queue: 2048,
+                    sendfile_threshold_bytes: 64 * 1024,
+                }
+            }
+        };
+        let workers = std::env::var("HTTP_HANDLE_WORKERS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok());
+        http_handle::perf_server::start_high_perf_multi_thread(
+            server, limits, workers,
+        )?;
+        Ok(())
+    }
+    #[cfg(not(feature = "high-perf-multi-thread"))]
+    {
+        let _ = server;
+        Err("enable feature 'high-perf-multi-thread' for HTTP_HANDLE_MODE=high-perf-mt".into())
     }
 }
 
