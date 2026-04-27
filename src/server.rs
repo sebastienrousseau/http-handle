@@ -1082,6 +1082,20 @@ impl Server {
         &self.document_root
     }
 
+    /// Returns the canonical document root, cached at build time.
+    ///
+    /// Pre-canonicalised so the request hot path can do a prefix check
+    /// without issuing `fs::canonicalize` per request. Falls back to
+    /// `document_root` when canonicalisation produced an empty path
+    /// (e.g. the path was constructed via `Default` and never built).
+    pub fn canonical_document_root(&self) -> &Path {
+        if self.canonical_document_root.as_os_str().is_empty() {
+            &self.document_root
+        } else {
+            &self.canonical_document_root
+        }
+    }
+
     /// Returns the configured maximum file size, in bytes, that the
     /// in-memory file-serve path will buffer. Falls back to
     /// [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] when the builder didn't

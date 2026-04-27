@@ -407,18 +407,18 @@ async fn try_send_static_file_fast_path(
         return Ok(false);
     }
 
-    let Some(file_path) =
-        resolve_static_path(server.document_root(), request.path())
-            .await
-    else {
+    let Some(file_path) = resolve_static_path(
+        server.document_root(),
+        server.canonical_document_root(),
+        request.path(),
+    ) else {
         return Ok(false);
     };
 
     let (serving_path, encoding) =
         negotiate_precompressed(&file_path, request);
-    let metadata = tokio::fs::metadata(&serving_path)
-        .await
-        .map_err(ServerError::from)?;
+    let metadata =
+        std::fs::metadata(&serving_path).map_err(ServerError::from)?;
     let len = metadata.len();
 
     let mut headers = Vec::new();
@@ -465,25 +465,38 @@ async fn try_send_static_file_fast_path(
                 return Ok(true);
             }
         }
+        // Above-threshold path that didn't sendfile (non-unix, or
+        // sendfile rejected): defer to the async file copy so the
+        // reactor isn't pinned reading a multi-MiB file synchronously.
+        let mut file = tokio::fs::File::open(&serving_path)
+            .await
+            .map_err(ServerError::from)?;
+        let _bytes_copied = tokio::io::copy(&mut file, stream)
+            .await
+            .map_err(ServerError::from)?;
+        stream.flush().await.map_err(ServerError::from)?;
+        return Ok(true);
     }
 
-    let mut file = tokio::fs::File::open(&serving_path)
-        .await
-        .map_err(ServerError::from)?;
-    let _bytes_copied = tokio::io::copy(&mut file, stream)
-        .await
-        .map_err(ServerError::from)?;
+    // Small-file fast path: read the file synchronously into a buffer
+    // and emit it in one write. For sub-`sendfile_threshold_bytes`
+    // files on local disk, the sync read returns in microseconds, and
+    // skipping the `tokio::fs` blocking-pool round-trip eliminates a
+    // guaranteed cross-thread hop per request.
+    let body =
+        std::fs::read(&serving_path).map_err(ServerError::from)?;
+    stream.write_all(&body).await.map_err(ServerError::from)?;
     stream.flush().await.map_err(ServerError::from)?;
     Ok(true)
 }
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-async fn resolve_static_path(
+fn resolve_static_path(
     root: &Path,
+    canonical_root: &Path,
     request_path: &str,
 ) -> Option<PathBuf> {
-    let canonical_root = tokio::fs::canonicalize(root).await.ok()?;
     let mut path = root.to_path_buf();
     let rel = request_path.trim_start_matches('/');
 
@@ -499,15 +512,15 @@ async fn resolve_static_path(
         }
     }
 
-    let resolved = tokio::fs::canonicalize(&path).await.ok()?;
+    let resolved = std::fs::canonicalize(&path).ok()?;
     if !resolved.starts_with(canonical_root) {
         return None;
     }
 
-    let meta = tokio::fs::metadata(&resolved).await.ok()?;
+    let meta = std::fs::metadata(&resolved).ok()?;
     if meta.is_dir() {
         let index = resolved.join("index.html");
-        let index_meta = tokio::fs::metadata(&index).await.ok()?;
+        let index_meta = std::fs::metadata(&index).ok()?;
         if index_meta.is_file() {
             return Some(index);
         }
@@ -703,26 +716,30 @@ mod tests {
         assert!(parse_request_from_bytes(b"GET / \r\n\r\n").is_err());
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn resolve_static_path_and_content_type_behave() {
+    #[test]
+    fn resolve_static_path_and_content_type_behave() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::write(root.join("index.html"), "ok").expect("write");
         std::fs::create_dir(root.join("nested")).expect("mkdir");
         std::fs::write(root.join("nested").join("index.html"), "n")
             .expect("write");
+        let canonical_root =
+            std::fs::canonicalize(root).expect("canonical");
 
-        let p1 =
-            resolve_static_path(root, "/").await.expect("root index");
+        let p1 = resolve_static_path(root, &canonical_root, "/")
+            .expect("root index");
         assert!(p1.ends_with("index.html"));
-        let p2 = resolve_static_path(root, "/nested")
-            .await
+        let p2 = resolve_static_path(root, &canonical_root, "/nested")
             .expect("nested index");
         assert!(p2.ends_with("nested/index.html"));
         assert!(
-            resolve_static_path(root, "/../../etc/passwd")
-                .await
-                .is_none()
+            resolve_static_path(
+                root,
+                &canonical_root,
+                "/../../etc/passwd"
+            )
+            .is_none()
         );
 
         assert_eq!(
@@ -1215,14 +1232,17 @@ mod tests {
         assert!(text.contains("Vary: Accept-Encoding"));
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
+    #[test]
+    fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
      {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::create_dir(root.join("dir-no-index")).expect("mkdir");
+        let canonical_root =
+            std::fs::canonicalize(root).expect("canonical");
         assert!(
-            resolve_static_path(root, "/dir-no-index").await.is_none()
+            resolve_static_path(root, &canonical_root, "/dir-no-index")
+                .is_none()
         );
         assert!(!is_probably_immutable_asset("/assets/noext"));
         assert!(!is_probably_immutable_asset("/assets/file.js"));
@@ -1557,8 +1577,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn resolve_static_path_rejects_symlink_escape() {
+    #[test]
+    fn resolve_static_path_rejects_symlink_escape() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("root");
         std::fs::create_dir(&root).expect("mkroot");
@@ -1566,6 +1586,8 @@ mod tests {
         std::fs::create_dir(&outside).expect("mkoutside");
         std::fs::write(outside.join("secret.txt"), "shh")
             .expect("write secret");
+        let canonical_root =
+            std::fs::canonicalize(&root).expect("canonical");
         #[cfg(unix)]
         {
             let link = root.join("link.txt");
@@ -1575,12 +1597,20 @@ mod tests {
             )
             .expect("symlink");
             assert!(
-                resolve_static_path(&root, "/link.txt").await.is_none(),
+                resolve_static_path(
+                    &root,
+                    &canonical_root,
+                    "/link.txt"
+                )
+                .is_none(),
                 "symlink pointing outside root must not resolve",
             );
         }
         #[cfg(not(unix))]
-        let _ = outside;
+        {
+            let _ = outside;
+            let _ = canonical_root;
+        }
     }
 
     /// Covers the `Connection: close` early-return after a successful

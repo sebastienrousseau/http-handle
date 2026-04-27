@@ -8,26 +8,36 @@ These are end-to-end numbers from an external HTTP client driving real TCP keep-
 
 | Mode | Req/s avg | Lat p50 | Lat p90 | Lat p99 | 4xx/5xx |
 |---|---|---|---|---|---|
-| `sync` (`Server::start`) | **29,164** | 7.63 ms | 14.80 ms | 35.94 ms | 0 / 0 |
-| `high-perf` (`start_high_perf`, current-thread) | 9,583 | 25.67 ms | 30.45 ms | 51.32 ms | 0 / 0 |
-| `high-perf-mt` (`start_high_perf_multi_thread`, default workers) | 8,914 | 26.24 ms | 39.67 ms | 77.45 ms | 0 / 0 |
-| `high-perf-mt` (workers = 4) | 5,991 | 33.13 ms | 70.59 ms | 182.44 ms | 0 / 0 |
+| `sync` (`Server::start`) | **29,836** | 8.30 ms | 12.79 ms | 26.06 ms | 0 / 0 |
+| `high-perf-mt` (`start_high_perf_multi_thread`, default workers) | 22,510 | 10.74 ms | 13.87 ms | 23.19 ms | 0 / 0 |
+| `high-perf` (`start_high_perf`, current-thread) | 14,481 | 17.90 ms | 18.34 ms | 19.98 ms | 0 / 0 |
 
-All modes ran zero errors across the test window (867 k requests for sync, 287 k high-perf, 267 k high-perf-mt default).
+All modes ran zero errors across the test window (892 k requests for sync, 675 k high-perf-mt, 434 k high-perf).
 
-## Why does sync beat the async modes on this benchmark?
+## Fast-path optimisation (v0.0.5)
 
-The hot path of `benchmark_target` is essentially "accept → parse 38-byte response → write back" — there is no I/O wait per request. Under those conditions the per-future polling overhead of tokio's reactor outweighs anything async buys you, and the sync `Server::start` thread-per-connection model just runs the request handler straight-line on whichever core macOS scheduled the OS thread on.
+The async path previously routed every static-file request through `tokio::fs::canonicalize` × 2, `tokio::fs::metadata` × 2, `tokio::fs::File::open`, and `tokio::io::copy`. Each one is a `spawn_blocking` round-trip — a thread context switch through tokio's blocking pool. For sub-`sendfile_threshold_bytes` files on local disk, the syscall returns in microseconds, so the round-trip dominated.
 
-Adding tokio's multi-thread runtime (`high-perf-mt`) does **not** close the gap on this benchmark. With 8 worker threads it lands a touch below the current-thread variant; constraining to 4 workers makes it worse. The dominant cost under high concurrent keep-alive on a CPU-bound static workload is contention on the inflight `Semaphore` and cross-core scheduling overhead — neither of which scales by adding workers.
+v0.0.5 keeps `tokio::fs` for the above-threshold (sendfile-fallback) path, but the small-file fast path now uses `std::fs::canonicalize` / `metadata` / `read` directly inside the async handler, then a single `write_all` of the buffered body. That removes 5 cross-thread hops per request.
 
-This is workload-shape, not a defect in `perf_server`:
+Impact on this benchmark:
 
-- **Single-threaded async wins under different workloads.** Lots of small short-lived connections (no keep-alive), high I/O wait per request (DB / upstream calls), or memory-constrained hosts where 256 OS threads is not affordable — those favour the async path.
-- **`high-perf-mt` is the right primitive for mixed I/O.** When request handlers do real async work (await on a backend, run a slow downstream, multiplex across many sockets), the multi-thread runtime spreads that work across cores. On a pure static-file hot path it's overhead.
-- **Real production deployments behind a load balancer** usually pin one process per CPU and run `current_thread` per process anyway. The sync-thread-per-connection model doesn't horizontal-scale that pattern as cleanly.
+- `high-perf` (current-thread): **9,583 → 14,481 req/s (+51%)**, p99 51 ms → **20 ms**.
+- `high-perf-mt` (multi-thread): **8,914 → 22,510 req/s (+153%)**, p99 77 ms → **23 ms**.
 
-The takeaway: pick the mode that matches your deployment shape, not the bench winner. v0.0.5 ships all three (`sync`, `high-perf`, `high-perf-mt`) so you can pick.
+Multi-thread now beats single-thread, as it should: once the per-request work is no longer dominated by a blocking-pool hop, tokio's work-stealing scheduler can spread real CPU work across cores.
+
+## Why does sync still edge ahead on this benchmark?
+
+The hot path of `benchmark_target` is essentially "accept → parse 38-byte response → write back" — there is no I/O wait per request. Sync `Server::start` runs that straight-line on a dedicated OS thread; multi-thread async still pays a fixed reactor-poll overhead per future and contends on the inflight `Semaphore`. With the spawn_blocking hops removed, the gap is now ~1.32× (was 3.27×).
+
+The remaining gap is workload shape, not a defect:
+
+- **`high-perf-mt` will beat sync on mixed I/O.** When request handlers do real async work (await on a backend, run a slow downstream, multiplex across many sockets), the multi-thread runtime spreads that work across cores while sync blocks an OS thread per connection.
+- **`high-perf` (current-thread) is the right primitive for memory-constrained hosts** where 256 OS threads is not affordable, or for one-process-per-CPU deployments behind a load balancer.
+- **Sync wins for pure static-file serving** on memory-rich hosts where the OS scheduler can spread hundreds of threads across cores.
+
+The takeaway: pick the mode that matches your deployment shape. v0.0.5 ships all three (`sync`, `high-perf`, `high-perf-mt`) so you can pick.
 
 ## Re-running the harness
 
