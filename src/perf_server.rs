@@ -1673,6 +1673,65 @@ mod tests {
         let _ = server_task.await;
     }
 
+    /// Drives the post-fallback `Connection: close` branch of
+    /// [`handle_async_connection`]. The fast path returns `false` for
+    /// a missing file, the keep-alive loop falls through to
+    /// `build_response_for_request_with_metrics`, sends the 404, and
+    /// must then exit via the `policy == ConnectionPolicy::Close`
+    /// arm rather than blocking on another idle read. Exercises the
+    /// async-path counterpart to the sync `handle_connection` close
+    /// branch.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_closes_after_404_when_requested() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir(root.join("404")).expect("404 dir");
+        std::fs::write(root.join("404/index.html"), "not found")
+            .expect("404");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect");
+            stream
+                .write_all(
+                    b"GET /missing.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("write");
+            stream
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+        // The handler must return promptly because the
+        // `Connection: close` policy short-circuits the keep-alive
+        // loop after the 404 is written. If the close branch were
+        // missing the loop would re-enter the read path and block on
+        // the idle-timeout instead.
+        handle_async_connection(
+            server_stream,
+            &server,
+            &PerfLimits::default(),
+        )
+        .await
+        .expect("handled");
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("Connection: close"));
+    }
+
     /// Smoke test for the multi-thread entry point: serves one request,
     /// then aborts the runtime via panic. This verifies the function
     /// builds the runtime and dispatches into the existing accept loop;

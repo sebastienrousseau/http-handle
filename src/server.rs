@@ -3556,4 +3556,69 @@ mod tests {
             "cache len {len_after} exceeds cap {ETAG_CACHE_MAX}"
         );
     }
+
+    /// Covers the HTTP/1.0 + explicit `Connection: keep-alive` arm and
+    /// the HTTP/1.0-without-header default-close arm of
+    /// [`ConnectionPolicy::from_request`]. The HTTP/1.1 arms are
+    /// already exercised end-to-end by the keep-alive integration
+    /// tests; these two arms only fire on legacy HTTP/1.0 traffic and
+    /// would otherwise stay uncovered.
+    #[test]
+    fn connection_policy_handles_http_1_0_explicit_keepalive_and_default_close()
+     {
+        let keepalive = Request {
+            method: "GET".into(),
+            path: "/".into(),
+            version: "HTTP/1.0".into(),
+            headers: vec![("connection".into(), "keep-alive".into())],
+        };
+        assert_eq!(
+            ConnectionPolicy::from_request(&keepalive),
+            ConnectionPolicy::KeepAlive
+        );
+
+        let bare = Request {
+            method: "GET".into(),
+            path: "/".into(),
+            version: "HTTP/1.0".into(),
+            headers: Vec::new(),
+        };
+        assert_eq!(
+            ConnectionPolicy::from_request(&bare),
+            ConnectionPolicy::Close
+        );
+    }
+
+    /// Covers the empty-fallback branch of
+    /// [`Server::canonical_document_root`]. The accessor falls back to
+    /// `document_root` when the cached canonical path is empty, which
+    /// happens for `Server` values reconstructed via `Default` (e.g.
+    /// after `serde::Deserialize` since `canonical_document_root` is
+    /// `#[serde(skip)]`).
+    #[test]
+    fn canonical_document_root_falls_back_when_cache_is_empty() {
+        // `canonical_document_root` is `#[serde(skip, default)]`, so a
+        // freshly-defaulted `Server` has it empty. Construct via
+        // struct-literal so the empty-cache state is set at build
+        // time rather than mutated post-`Default` (clippy's
+        // `field_reassign_with_default` flags the latter).
+        let mut server = Server {
+            document_root: PathBuf::from("/tmp/some-root"),
+            canonical_document_root: PathBuf::new(),
+            ..Server::default()
+        };
+        assert_eq!(
+            server.canonical_document_root(),
+            Path::new("/tmp/some-root")
+        );
+
+        // When the cache is populated the accessor returns it
+        // unchanged, not the configured `document_root`.
+        server.canonical_document_root =
+            PathBuf::from("/canonical/elsewhere");
+        assert_eq!(
+            server.canonical_document_root(),
+            Path::new("/canonical/elsewhere")
+        );
+    }
 }
