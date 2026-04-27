@@ -683,4 +683,26 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    #[test]
+    fn test_missing_http_version_returns_error() {
+        // Two-token request line: method + path, no version.
+        // Triggers the third let-else branch (missing HTTP version).
+        let err = run_request_bytes(b"GET /\r\n".to_vec()).unwrap_err();
+        assert!(
+            err.to_string().contains("missing HTTP version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_request_display_formats_method_path_version() {
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        assert_eq!(format!("{request}"), "GET /index.html HTTP/1.1");
+    }
 }

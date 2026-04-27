@@ -3422,4 +3422,124 @@ mod tests {
         let _ = stream.read_to_string(&mut response).expect("read");
         assert!(response.starts_with("HTTP/1.1 200 OK"));
     }
+
+    // ── Coverage fillers ────────────────────────────────────────────
+    // The tests below exist to push individual files past the 98 %
+    // line-coverage threshold. They are deliberately small and
+    // targeted: each names the lines or branch it covers in a comment
+    // so future churn keeps the coverage explanation co-located with
+    // the test.
+
+    /// Covers `ServerBuilder::disable_cors`.
+    #[test]
+    fn test_server_builder_disable_cors_setter() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .enable_cors()
+            .disable_cors()
+            .build()
+            .expect("server");
+        assert_eq!(server.cors_enabled(), Some(false));
+    }
+
+    /// Covers `ServerBuilder::max_buffered_body_bytes` and the matching
+    /// `Server::max_buffered_body_bytes` getter override path.
+    #[test]
+    fn test_server_builder_max_buffered_body_bytes_override() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .max_buffered_body_bytes(1_000_000)
+            .build()
+            .expect("server");
+        assert_eq!(server.max_buffered_body_bytes(), 1_000_000);
+    }
+
+    /// Covers `Server::max_buffered_body_bytes` default-fallback path.
+    #[test]
+    fn test_server_max_buffered_body_bytes_default_fallback() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .build()
+            .expect("server");
+        assert_eq!(
+            server.max_buffered_body_bytes(),
+            DEFAULT_MAX_BUFFERED_BODY_BYTES
+        );
+    }
+
+    /// Covers `ShutdownSignal::default`.
+    #[test]
+    fn test_shutdown_signal_default_constructor() {
+        let signal = ShutdownSignal::default();
+        assert_eq!(signal.shutdown_timeout, Duration::from_secs(30));
+        assert!(!signal.is_shutdown_requested());
+    }
+
+    /// Covers the `> max_buffered_body_bytes` body-cap error branch in
+    /// `serve_file_response`. Builds a tiny cap (1 byte) so any non-empty
+    /// file trips the rejection.
+    #[test]
+    fn test_serve_file_response_rejects_oversize_body() {
+        let root = setup_test_directory();
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        let canonical =
+            fs::canonicalize(root.path()).expect("canonicalize");
+        let err = generate_response_with_cache(
+            &request,
+            root.path(),
+            &canonical,
+            None,
+            1, // 1-byte cap; the test fixture writes a multi-byte file
+        )
+        .expect_err("oversized file must be rejected");
+        assert!(
+            err.to_string().contains("exceeds in-memory serve cap"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Covers the etag cache eviction path (drop_count loop) by inserting
+    /// more than ETAG_CACHE_MAX synthetic entries directly into the
+    /// global cache and then forcing one more `compute_etag` call.
+    #[test]
+    fn test_etag_cache_evicts_when_full() {
+        let cache = etag_cache();
+        // Pre-fill past the cap with synthetic entries.
+        if let Ok(mut write) = cache.write() {
+            for i in 0..(ETAG_CACHE_MAX + 1) as u64 {
+                let _ = write.insert(
+                    (i, i),
+                    Arc::<str>::from(format!("W/\"{i:x}-{i:x}\"")),
+                );
+            }
+        }
+        // Sanity: cache is at-or-above the cap.
+        let len_before =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        assert!(len_before >= ETAG_CACHE_MAX);
+
+        // Trigger a real compute_etag — this hits the eviction branch
+        // because the cache is full and the new key (1, 0) isn't a
+        // pre-seeded entry.
+        let temp = std::env::temp_dir();
+        let metadata = fs::metadata(&temp).expect("metadata");
+        let _ = compute_etag(&metadata);
+
+        let len_after =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        // Eviction dropped a quarter, so the cache must be smaller
+        // than the worst-case pre-fill state.
+        assert!(
+            len_after <= ETAG_CACHE_MAX,
+            "cache len {len_after} exceeds cap {ETAG_CACHE_MAX}"
+        );
+    }
 }

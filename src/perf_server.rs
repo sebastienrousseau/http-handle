@@ -1530,4 +1530,64 @@ mod tests {
         #[cfg(not(unix))]
         let _ = outside;
     }
+
+    /// Covers the `Connection: close` early-return after a successful
+    /// fast-path send inside `handle_async_connection`. Drives a fresh
+    /// connection that asks for keep-alive close so the loop exits via
+    /// the post-fast-path `if policy == ConnectionPolicy::Close`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_closes_after_fast_path_when_requested()
+     {
+        use crate::Server;
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+        std::fs::create_dir(dir.path().join("404")).expect("404 dir");
+        std::fs::write(dir.path().join("404/index.html"), b"404")
+            .expect("write 404");
+
+        let probe =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr").to_string();
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr)
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let server_task = tokio::spawn(async move {
+            let _ =
+                start_high_perf(server, PerfLimits::default()).await;
+        });
+
+        // Wait for the server to bind.
+        for _ in 0..50 {
+            if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // Single roundtrip with explicit `Connection: close` so the
+        // server's post-fast-path branch returns Ok(()) instead of
+        // looping into another idle wait.
+        let mut s = tokio::net::TcpStream::connect(&addr)
+            .await
+            .expect("connect");
+        s.write_all(
+            b"GET /index.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .expect("write");
+        let mut sink = Vec::with_capacity(512);
+        let _ = s.read_to_end(&mut sink).await.expect("read");
+        let body = String::from_utf8_lossy(&sink);
+        assert!(body.contains("HTTP/1.1 200 OK"));
+        assert!(body.contains("Connection: close"));
+
+        server_task.abort();
+        let _ = server_task.await;
+    }
 }

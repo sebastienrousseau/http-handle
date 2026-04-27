@@ -315,4 +315,32 @@ mod tests {
 
         assert!(result.is_err());
     }
+
+    /// Forces the status-line `write!` to overflow the internal
+    /// `BufWriter` (4096 B capacity) mid-call so the underlying
+    /// `FailingStream::write` is invoked and the `?` on the status
+    /// line fires — that's the only way to cover the early-return
+    /// path; smaller writes sit in the buffer and surface only on
+    /// the trailing `flush()`.
+    #[test]
+    fn test_response_send_propagates_status_line_overflow_error() {
+        let huge_status = "X".repeat(8 * 1024);
+        let response = Response::new(200, &huge_status, b"".to_vec());
+
+        struct FailingStream;
+        impl Write for FailingStream {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("write error"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut sink = FailingStream;
+        let err = response.send(&mut sink).expect_err("must fail");
+        assert!(err.to_string().contains("write error"));
+        // Exercise the impl's flush() arm so it carries coverage too.
+        sink.flush().expect("flush always Ok");
+    }
 }

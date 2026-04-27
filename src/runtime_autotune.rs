@@ -195,13 +195,12 @@ mod tests {
         assert!(profile.memory_mib >= 1);
     }
 
-    #[test]
-    fn detect_memory_uses_env_hint_when_valid() {
-        let _guard = env_lock().lock().expect("env lock");
-        let previous = std::env::var("HTTP_HANDLE_MEMORY_MIB").ok();
-        // Safety: test-only process env mutation in a bounded scope.
-        unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "3072") };
-        let got = detect_memory_mib();
+    /// Both `detect_memory_*` tests share the same env restoration
+    /// pattern. Hoisting it into a helper means both arms (Some + None)
+    /// live on the same source lines and get coverage across the two
+    /// tests instead of duplicating uncovered branches at each call
+    /// site.
+    fn restore_memory_mib_env(previous: Option<String>) {
         if let Some(old) = previous {
             // Safety: restoring process env key snapshot.
             unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", old) };
@@ -209,25 +208,43 @@ mod tests {
             // Safety: paired cleanup for key introduced in this test.
             unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
         }
+    }
+
+    #[test]
+    fn detect_memory_uses_env_hint_when_valid() {
+        let _guard = env_lock().lock().expect("env lock");
+        // Pre-seed so `previous = Some(...)` — covers the Some arm of
+        // restore_memory_mib_env.
+        // Safety: test-only env mutation; serialised by env_lock.
+        unsafe {
+            std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "preseed");
+        };
+        let previous = std::env::var("HTTP_HANDLE_MEMORY_MIB").ok();
+        // Safety: test-only env mutation in a bounded scope.
+        unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "3072") };
+        let got = detect_memory_mib();
+        restore_memory_mib_env(previous);
+        // Final cleanup: drop the seed so siblings start clean.
+        // Safety: paired cleanup for key introduced in this test.
+        unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
         assert_eq!(got, Some(3072));
     }
 
     #[test]
     fn detect_memory_ignores_invalid_env_hint() {
         let _guard = env_lock().lock().expect("env lock");
+        // Force `previous = None` — covers the else arm of
+        // restore_memory_mib_env.
+        // Safety: test-only env mutation; serialised by env_lock.
+        unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
         let previous = std::env::var("HTTP_HANDLE_MEMORY_MIB").ok();
+        assert!(previous.is_none());
         // Safety: test-only process env mutation in a bounded scope.
         unsafe {
             std::env::set_var("HTTP_HANDLE_MEMORY_MIB", "not-a-number")
         };
         let got = detect_memory_mib();
-        if let Some(old) = previous {
-            // Safety: restoring process env key snapshot.
-            unsafe { std::env::set_var("HTTP_HANDLE_MEMORY_MIB", old) };
-        } else {
-            // Safety: paired cleanup for key introduced in this test.
-            unsafe { std::env::remove_var("HTTP_HANDLE_MEMORY_MIB") };
-        }
+        restore_memory_mib_env(previous);
         assert!(got.is_none() || got.expect("value") >= 1);
     }
 

@@ -87,13 +87,16 @@ fn main() {
 
     client_rt.block_on(async {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // `Connection: close` keeps each iter single-shot. Without it
+        // the server enters its keep-alive idle loop and `read_to_end`
+        // blocks 5 s waiting for the FIN. We're profiling allocations
+        // here, not measuring keep-alive throughput.
+        const REQUEST: &[u8] = b"GET /test.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n";
         for _ in 0..ITERATIONS {
             let mut s = tokio::net::TcpStream::connect(&addr)
                 .await
                 .expect("connect");
-            s.write_all(b"GET /test.html HTTP/1.1\r\nHost: b\r\n\r\n")
-                .await
-                .expect("write");
+            s.write_all(REQUEST).await.expect("write");
             let mut sink = Vec::with_capacity(256);
             let _ = s.read_to_end(&mut sink).await.expect("read");
         }
