@@ -42,7 +42,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ### Changed
 
-- Test coverage **95.82% → 99.10%** crate-wide. Lib test count **150 → 201**. Every targeted module now ≥ 98% line coverage.
+- Test coverage **95.82% → 99.10%** crate-wide. Lib test count **150 → 212**. Every targeted module now ≥ 98% line coverage.
 - 30+ bespoke GitHub Actions workflows retired in favor of three reusable-workflow calls into `sebastienrousseau/pipelines` (rust-ci, security, docs). Dependabot moved to weekly Monday 09:00 UTC schedule with grouped minor/patch updates.
 - `release.opt-level` switched from `"s"` (size) to `3` (speed) — server is latency / throughput-sensitive; binary size is not the constraint for a library consumed as a dependency.
 - SPDX copyright header updated to `Copyright (c) 2023 - 2026 HTTP Handle` across 82 files.
