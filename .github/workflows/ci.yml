@@ -43,7 +43,7 @@ permissions:
 jobs:
   rust-ci:
     name: Rust CI
-    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@cf0413f34ee0f24fe52a32f39d26eca513f65713 # v0.0.1
+    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
     with:
       rust-version: stable
       run-clippy: true
