@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<img src="https://kura.pro/http-handle/images/logos/http-handle.svg"
+<img src="https://cloudcdn.pro/http-handle/v1/logos/http-handle.svg"
 alt="Http Handle logo" height="66" align="right" />
 <!-- markdownlint-enable MD033 MD041 -->
 

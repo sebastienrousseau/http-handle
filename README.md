@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://kura.pro/http-handle/images/logos/http-handle.svg" alt="HTTP Handle logo" width="128" />
+  <img src="https://cloudcdn.pro/http-handle/v1/logos/http-handle.svg" alt="HTTP Handle logo" width="128" />
 </p>
 
 <h1 align="center">HTTP Handle</h1>

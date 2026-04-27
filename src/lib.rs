@@ -18,8 +18,8 @@
 // src/lib.rs
 #![doc = include_str!("../README.md")]
 #![doc(
-    html_favicon_url = "https://kura.pro/http-handle/images/favicon.ico",
-    html_logo_url = "https://kura.pro/http-handle/images/logos/http-handle.svg",
+    html_favicon_url = "https://cloudcdn.pro/http-handle/v1/favicon.ico",
+    html_logo_url = "https://cloudcdn.pro/http-handle/v1/logos/http-handle.svg",
     html_root_url = "https://docs.rs/http-handle"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
