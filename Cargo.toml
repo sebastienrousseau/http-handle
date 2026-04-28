@@ -19,7 +19,7 @@ documentation = "https://http-handle.com/documentation/index.html" # Documentati
 repository = "https://github.com/sebastienrousseau/http-handle"    # Repository URL
 readme = "README.md"                        # Path to the README file
 build = "build.rs"                          # Path to the build script (optional if used)
-autoexamples = false                        # examples/support.rs is included via #[path]; only [[example]] blocks below are real targets
+autoexamples = false                        # examples/support.rs is included via #[path]; only the example blocks declared below are real targets
 
 # -----------------------------------------------------------------------------
 # Dependencies
