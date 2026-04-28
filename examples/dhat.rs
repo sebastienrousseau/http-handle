@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2023 - 2026 HTTP Handle
 
-//! Heap-profile harness for the perf_server async path.
+//! Heap-profile harness for the `perf_server` async path.
 //!
 //! Run:
-//!     cargo run --release --example dhat_alloc_profile --features high-perf
+//!     cargo run --release --example dhat --features high-perf
 //!
 //! Writes `dhat-heap.json` in the current directory. Open it with
 //! `dh_view` (<https://nnethercote.github.io/dh_view/dh_view.html>) to
 //! get a flamegraph-style breakdown of allocation sites by total bytes,
 //! peak bytes, and call count.
 //!
-//! Workload: 1024 sequential GET /test.html roundtrips against a single
-//! `start_high_perf` server bound to a free localhost port. The
+//! Workload: 1024 sequential `GET /test.html` roundtrips against a
+//! single `start_high_perf` server bound to a free localhost port. The
 //! profile captures the steady-state allocation pattern of the async
 //! request → response pipeline; transient setup allocations (tempdir,
 //! tokio runtime build) are bracketed by the `Profiler` lifetime so
@@ -23,17 +23,25 @@
 //! workload-dependent; treat them as a baseline for "did my refactor
 //! make things worse," not as absolute truth.
 
+#[cfg(feature = "high-perf")]
 use http_handle::Server;
+#[cfg(feature = "high-perf")]
 use http_handle::perf_server::{PerfLimits, start_high_perf};
+#[cfg(feature = "high-perf")]
 use std::net::TcpListener;
+#[cfg(feature = "high-perf")]
 use std::thread;
+#[cfg(feature = "high-perf")]
 use std::time::Duration;
 
+#[cfg(feature = "high-perf")]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+#[cfg(feature = "high-perf")]
 const ITERATIONS: usize = 1024;
 
+#[cfg(feature = "high-perf")]
 fn main() {
     let _profiler = dhat::Profiler::new_heap();
 
@@ -70,7 +78,6 @@ fn main() {
         });
     });
 
-    // Wait for bind.
     let client_rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -89,8 +96,7 @@ fn main() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         // `Connection: close` keeps each iter single-shot. Without it
         // the server enters its keep-alive idle loop and `read_to_end`
-        // blocks 5 s waiting for the FIN. We're profiling allocations
-        // here, not measuring keep-alive throughput.
+        // blocks 5 s waiting for the FIN.
         const REQUEST: &[u8] = b"GET /test.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n";
         for _ in 0..ITERATIONS {
             let mut s = tokio::net::TcpStream::connect(&addr)
@@ -103,7 +109,14 @@ fn main() {
     });
 
     println!(
-        "[dhat_alloc_profile] {ITERATIONS} roundtrips complete; \
+        "[dhat] {ITERATIONS} roundtrips complete; \
          dhat-heap.json written on Profiler drop."
+    );
+}
+
+#[cfg(not(feature = "high-perf"))]
+fn main() {
+    eprintln!(
+        "Enable the 'high-perf' feature: cargo run --release --example dhat --features high-perf"
     );
 }

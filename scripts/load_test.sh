@@ -3,7 +3,7 @@
 # Copyright (c) 2023 - 2026 HTTP Handle
 #
 # External-tool load test for the high-perf async server. Drives a fresh
-# `benchmark_target` example with `bombardier` (https://github.com/codesenberg/bombardier)
+# `bench` example with `bombardier` (https://github.com/codesenberg/bombardier)
 # at sustained 256-connection keep-alive concurrency, captures the
 # throughput and latency distribution, and prints a summary.
 #
@@ -50,13 +50,13 @@ mkdir -p "$ROOT/404"
 echo '404' > "$ROOT/404/index.html"
 
 # Build with all relevant features so the mode arg actually resolves.
-cargo build --release --example benchmark_target \
+cargo build --release --example bench \
     --features 'async,high-perf,high-perf-multi-thread,http2' >/dev/null
 
 HTTP_HANDLE_ADDR="$ADDR" \
 HTTP_HANDLE_ROOT="$ROOT" \
 HTTP_HANDLE_MODE="$MODE" \
-    cargo run --release --example benchmark_target \
+    cargo run --release --example bench \
         --features 'async,high-perf,high-perf-multi-thread,http2' >/tmp/load_test_server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$ROOT"' EXIT
@@ -75,7 +75,7 @@ if ! curl -sf "http://${ADDR}/test.html" >/dev/null; then
     exit 1
 fi
 
-echo "▶ benchmark_target running on ${ADDR} (mode=${MODE})"
+echo "▶ bench running on ${ADDR} (mode=${MODE})"
 echo "▶ ${BIN} -c ${CONNECTIONS} -d ${DURATION}s -l http://${ADDR}/test.html"
 echo
 

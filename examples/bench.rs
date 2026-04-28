@@ -2,6 +2,15 @@
 // Copyright (c) 2023 - 2026 HTTP Handle
 
 //! Benchmark target server used by CI performance matrix.
+//!
+//! Run via `scripts/load_test.sh <mode>` or directly:
+//!     HTTP_HANDLE_MODE=high-perf-mt \
+//!     HTTP_HANDLE_ADDR=127.0.0.1:8090 \
+//!     HTTP_HANDLE_ROOT=./public \
+//!     cargo run --release --example bench --features 'async,high-perf,high-perf-multi-thread,http2'
+//!
+//! Modes: `sync` (default), `async`, `high-perf`, `high-perf-mt`, `http2`.
+//! `HTTP_HANDLE_WORKERS=N` pins worker count for the multi-thread mode.
 
 use http_handle::Server;
 

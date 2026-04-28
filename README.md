@@ -76,6 +76,65 @@ enterprise auth), see [docs/EXAMPLES.md](docs/EXAMPLES.md).
 
 ---
 
+## Examples
+
+30 one-word examples cover every public API and feature flag. Each is
+registered as a `[[example]]` target in `Cargo.toml` and follows a
+shared layout (animated spinner + checkmark output via
+`examples/support.rs`).
+
+```bash
+cargo run --example <name> [--features "<flag>"]
+cargo run --example all                  # run every demo in sequence
+```
+
+**Core** (no features required):
+
+| Example | What it shows |
+|---|---|
+| `hello` | Minimal `Server::new` |
+| `builder` | `ServerBuilder` fluent API (CORS, headers, timeouts, validation) |
+| `request` | `Request::from_stream` parse over a real TCP roundtrip |
+| `response` | `Response::send` + `set_connection_header` |
+| `errors` | `ServerError` constructors |
+| `policies` | CORS / security headers / timeouts / rate-limit / cache TTL |
+| `pool` | `ThreadPool` and `ConnectionPool` bounded-resource semantics |
+| `shutdown` | `ShutdownSignal` lifecycle and graceful drain |
+| `keepalive` | HTTP/1.1 keep-alive over one TCP connection (5 GETs) |
+| `language` | `LanguageDetector` built-in + custom regex patterns |
+
+**Per Cargo feature flag** (one example per flag):
+
+| Example | Feature | What it shows |
+|---|---|---|
+| `async` | `async` | `run_blocking` + `start_async` |
+| `batch` | `batch` | Concurrent file reads with parallelism cap |
+| `streaming` | `streaming` | `ChunkStream` chunked file iteration |
+| `optimized` | `optimized` | Const MIME table + bitset language detection |
+| `observability` | `observability` | Structured tracing via `tracing-subscriber` |
+| `http2` | `http2` | h2c server + framed body roundtrip |
+| `http3` | `http3-profile` | ALPN routing + fallback chain |
+| `perf` | `high-perf` | `start_high_perf` with `PerfLimits` |
+| `multi` | `high-perf-multi-thread` | `start_high_perf_multi_thread` |
+| `autotune` | `autotune` | Host-profile-derived `PerfLimits` |
+| `ratelimit` | `distributed-rate-limit` | Distributed limiter + in-memory backend |
+| `tenant` | `multi-tenant` | Per-tenant config + scoped secrets |
+| `tls` | `enterprise` | TLS / mTLS policy primitives |
+| `auth` | `enterprise` | API-key + JWT verifiers |
+| `config` | `enterprise` | TOML config + hot-reload watcher |
+| `enterprise` | `enterprise` | RBAC adapter + per-request enforcement |
+
+**Tooling / runners**:
+
+| Example | What it does |
+|---|---|
+| `full` | Unified runner across every enabled feature |
+| `all` | Spawns every other example via `cargo run --example` |
+| `bench` | Bombardier target — driven by `scripts/load_test.sh` |
+| `dhat` | Heap-profile harness writing `dhat-heap.json` |
+
+---
+
 ## Migrating from 0.0.4 → 0.0.5
 
 `Request::headers` changed from `HashMap<String, String>` to `Vec<(String, String)>` for lower per-request allocation pressure and faster lookup at typical header counts. The `Request::header(name)` accessor is unchanged; only direct construction and iteration are affected.

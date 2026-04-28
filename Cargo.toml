@@ -19,6 +19,7 @@ documentation = "https://http-handle.com/documentation/index.html" # Documentati
 repository = "https://github.com/sebastienrousseau/http-handle"    # Repository URL
 readme = "README.md"                        # Path to the README file
 build = "build.rs"                          # Path to the build script (optional if used)
+autoexamples = false                        # examples/support.rs is included via #[path]; only [[example]] blocks below are real targets
 
 # -----------------------------------------------------------------------------
 # Dependencies
@@ -76,145 +77,159 @@ dhat = "0.3"                                # Heap profiling for the dhat_alloc_
 # -----------------------------------------------------------------------------
 # Examples
 # -----------------------------------------------------------------------------
+# One-word names mirror noyalib's example layout. `examples/support.rs`
+# is shared via `#[path = "support.rs"] mod support;` and is not
+# registered as a separate target. `examples/all.rs` runs every demo
+# in sequence (`cargo run --example all`).
+
+# ---- Core examples (no Cargo features required) ----
 [[example]]
-# Example code demonstrating the library in use.
-name = "basic_server"                       # Name of the example
-path = "examples/basic_server.rs"           # Path to the example file
+name = "hello"
+path = "examples/hello.rs"
 
 [[example]]
-# Example code demonstrating error handling.
-name = "error_example"                      # Name of the example
-path = "examples/error_example.rs"          # Path to the example file
+name = "builder"
+path = "examples/builder.rs"
 
 [[example]]
-# Example code demonstrating the library as a library.
-name = "full_demo"                          # Name of the example
-path = "examples/full_demo.rs"              # Path to the example file
+name = "request"
+path = "examples/request.rs"
 
 [[example]]
-# Legacy library example preserved from earlier revisions.
-name = "lib_example_legacy"                 # Name of the example
-path = "examples/lib_example_legacy.rs"     # Path to the example file
+name = "response"
+path = "examples/response.rs"
 
 [[example]]
-# Example code demonstrating request handling.
-name = "request_example"                   # Name of the example
-path = "examples/request_example.rs"       # Path to the example file
+name = "errors"
+path = "examples/errors.rs"
 
 [[example]]
-# Example code demonstrating response handling.
-name = "response_example"                  # Name of the example
-path = "examples/response_example.rs"      # Path to the example file
+name = "policies"
+path = "examples/policies.rs"
 
 [[example]]
-# Example code demonstrating server handling.
-name = "server_example"                    # Name of the example
-path = "examples/server_example.rs"        # Path to the example file
+name = "pool"
+path = "examples/pool.rs"
 
 [[example]]
-# Example code demonstrating graceful shutdown.
-name = "graceful_shutdown_example"         # Name of the example
-path = "examples/graceful_shutdown_example.rs" # Path to the example file
+name = "shutdown"
+path = "examples/shutdown.rs"
 
 [[example]]
-# Example code demonstrating ServerBuilder pattern usage.
-name = "server_builder_example"            # Name of the example
-path = "examples/server_builder_example.rs" # Path to the example file
+name = "keepalive"
+path = "examples/keepalive.rs"
 
 [[example]]
-# Example code demonstrating language detection with custom patterns.
-name = "feature_language_detection"        # Name of the example
-path = "examples/feature_language_detection.rs" # Path to the example file
+name = "language"
+path = "examples/language.rs"
+
+# ---- One example per Cargo feature flag ----
+[[example]]
+name = "async"
+path = "examples/async.rs"
+required-features = ["async"]
 
 [[example]]
-# Example code demonstrating concurrent batch processing.
-name = "feature_batch_processing"          # Name of the example
-path = "examples/feature_batch_processing.rs" # Path to the example file
-required-features = ["batch"]              # Only build when batch is enabled
+name = "batch"
+path = "examples/batch.rs"
+required-features = ["batch"]
 
 [[example]]
-# Example code demonstrating chunked file streaming.
-name = "feature_streaming_chunks"          # Name of the example
-path = "examples/feature_streaming_chunks.rs" # Path to the example file
-required-features = ["streaming"]          # Only build when streaming is enabled
+name = "streaming"
+path = "examples/streaming.rs"
+required-features = ["streaming"]
 
 [[example]]
-# Example code demonstrating optimized lookup helpers.
-name = "feature_optimized_lookups"         # Name of the example
-path = "examples/feature_optimized_lookups.rs" # Path to the example file
-required-features = ["optimized"]          # Only build when optimized is enabled
+name = "optimized"
+path = "examples/optimized.rs"
+required-features = ["optimized"]
 
 [[example]]
-# Example code demonstrating observability initialization.
-name = "feature_observability"             # Name of the example
-path = "examples/feature_observability.rs" # Path to the example file
-required-features = ["observability"]      # Only build when observability is enabled
+name = "observability"
+path = "examples/observability.rs"
+required-features = ["observability"]
 
 [[example]]
-# Example code demonstrating async runtime helper.
-name = "feature_async_runtime"             # Name of the example
-path = "examples/feature_async_runtime.rs" # Path to the example file
-required-features = ["async"]              # Only build when async is enabled
+name = "http2"
+path = "examples/http2.rs"
+required-features = ["http2"]
 
 [[example]]
-# Example code demonstrating async server startup.
-name = "feature_async_server"              # Name of the example
-path = "examples/feature_async_server.rs"  # Path to the example file
-required-features = ["async"]              # Only build when async is enabled
+name = "http3"
+path = "examples/http3.rs"
+required-features = ["http3-profile"]
 
 [[example]]
-# Example code demonstrating HTTP/2 server startup.
-name = "feature_http2_server"              # Name of the example
-path = "examples/feature_http2_server.rs"  # Path to the example file
-required-features = ["http2"]              # Only build when HTTP/2 is enabled
+name = "perf"
+path = "examples/perf.rs"
+required-features = ["high-perf"]
 
 [[example]]
-# Example code demonstrating HTTP/3 ALPN profile and fallback policy.
-name = "feature_http3_profile"             # Name of the example
-path = "examples/feature_http3_profile.rs" # Path to the example file
-required-features = ["http3-profile"]      # Only build when HTTP/3 profile is enabled
+name = "multi"
+path = "examples/multi.rs"
+required-features = ["high-perf-multi-thread"]
 
 [[example]]
-# Example code demonstrating distributed rate limiting adapters.
-name = "feature_distributed_rate_limit"    # Name of the example
-path = "examples/feature_distributed_rate_limit.rs" # Path to the example file
-required-features = ["distributed-rate-limit"] # Only build when distributed rate limiting is enabled
+name = "autotune"
+path = "examples/autotune.rs"
+required-features = ["autotune"]
 
 [[example]]
-# Example code demonstrating tenant isolation and secret providers.
-name = "feature_tenant_isolation"          # Name of the example
-path = "examples/feature_tenant_isolation.rs" # Path to the example file
-required-features = ["multi-tenant"]       # Only build when multi-tenant isolation is enabled
+name = "ratelimit"
+path = "examples/ratelimit.rs"
+required-features = ["distributed-rate-limit"]
 
 [[example]]
-# Example code demonstrating runtime auto-tuning.
-name = "feature_runtime_autotune"          # Name of the example
-path = "examples/feature_runtime_autotune.rs" # Path to the example file
-required-features = ["autotune"]           # Only build when autotune is enabled
+name = "tenant"
+path = "examples/tenant.rs"
+required-features = ["multi-tenant"]
 
 [[example]]
-# Example code demonstrating enterprise authorization policies.
-name = "feature_enterprise_authorization"  # Name of the example
-path = "examples/feature_enterprise_authorization.rs" # Path to the example file
-required-features = ["enterprise"]         # Only build when enterprise is enabled
+# `tls`, `auth`, and `config` features are sub-features of `enterprise`
+# and the actual code lives under that umbrella, so each gates on the
+# composite feature.
+name = "tls"
+path = "examples/tls.rs"
+required-features = ["enterprise"]
 
 [[example]]
-# Example code demonstrating practical server policy configuration.
-name = "scenario_server_policies"          # Name of the example
-path = "examples/scenario_server_policies.rs" # Path to the example file
+name = "auth"
+path = "examples/auth.rs"
+required-features = ["enterprise"]
 
 [[example]]
-# Benchmark target binary for external load tools.
-name = "benchmark_target"                  # Name of the example
-path = "examples/benchmark_target.rs"      # Path to the example file
+name = "config"
+path = "examples/config.rs"
+required-features = ["enterprise"]
 
 [[example]]
-# dhat heap-profile harness — drives a synthetic load against the
-# perf_server async path with global dhat allocator instrumentation.
-# Run with `cargo run --release --example dhat_alloc_profile --features high-perf`
-# Output is written to ./dhat-heap.json; load with https://nnethercote.github.io/dh_view/dh_view.html
-name = "dhat_alloc_profile"
-path = "examples/dhat_alloc_profile.rs"
+name = "enterprise"
+path = "examples/enterprise.rs"
+required-features = ["enterprise"]
+
+# ---- Tooling / runners ----
+[[example]]
+# Unified runner that exercises every enabled feature.
+name = "full"
+path = "examples/full.rs"
+
+[[example]]
+# Runs every other example via `cargo run --example all`.
+name = "all"
+path = "examples/all.rs"
+
+[[example]]
+# Benchmark target — driven by `scripts/load_test.sh` and CI.
+# Modes via HTTP_HANDLE_MODE: sync, async, high-perf, high-perf-mt, http2.
+name = "bench"
+path = "examples/bench.rs"
+
+[[example]]
+# Heap-profile harness — writes dhat-heap.json to the cwd. Open with
+# https://nnethercote.github.io/dh_view/dh_view.html
+# Run: `cargo run --release --example dhat --features high-perf`
+name = "dhat"
+path = "examples/dhat.rs"
 required-features = ["high-perf"]
 
 # -----------------------------------------------------------------------------
