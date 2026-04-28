@@ -21,6 +21,10 @@ jobs:
     uses: sebastienrousseau/pipelines/.github/workflows/security.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
     with:
       language: rust
+      # Override the v0.0.2 default of `medium`, which is rejected by
+      # actions/dependency-review-action (accepts low/moderate/high/critical).
+      # Track upstream fix at sebastienrousseau/pipelines.
+      severity-threshold: moderate
 
   docs:
     if: github.ref == 'refs/heads/main'
