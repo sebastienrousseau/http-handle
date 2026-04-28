@@ -7,6 +7,19 @@ listed name corresponds to `examples/<name>.rs` and is registered as a
 
 ## Run any example
 
+The frictionless path is the wrapper that auto-resolves the required
+Cargo features:
+
+```shell
+./scripts/example.sh <name>           # e.g. ./scripts/example.sh enterprise
+./scripts/example.sh --list           # print every example name
+./scripts/example.sh dhat --release   # extra cargo args pass through
+```
+
+If you'd rather invoke `cargo` directly, every feature-gated example
+prints the right command in its own doc comment, and the README's
+`## Examples` section lists copy-paste-ready commands per row:
+
 ```shell
 cargo run --example <name> [--features "<flag>"]
 ```

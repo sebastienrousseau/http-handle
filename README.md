@@ -83,55 +83,63 @@ registered as a `[[example]]` target in `Cargo.toml` and follows a
 shared layout (animated spinner + checkmark output via
 `examples/support.rs`).
 
+**The friction-free way:** `scripts/example.sh` knows the feature
+mapping, so you don't need to remember which Cargo flag each demo
+needs.
+
 ```bash
-cargo run --example <name> [--features "<flag>"]
-cargo run --example all                  # run every demo in sequence
+./scripts/example.sh hello              # core demos: no features
+./scripts/example.sh enterprise         # auto-attaches --features enterprise
+./scripts/example.sh dhat --release     # extra cargo flags pass through
+./scripts/example.sh --list             # print every name
 ```
+
+`cargo run --example all` builds and drives every demo in sequence.
 
 **Core** (no features required):
 
-| Example | What it shows |
-|---|---|
-| `hello` | Minimal `Server::new` |
-| `builder` | `ServerBuilder` fluent API (CORS, headers, timeouts, validation) |
-| `request` | `Request::from_stream` parse over a real TCP roundtrip |
-| `response` | `Response::send` + `set_connection_header` |
-| `errors` | `ServerError` constructors |
-| `policies` | CORS / security headers / timeouts / rate-limit / cache TTL |
-| `pool` | `ThreadPool` and `ConnectionPool` bounded-resource semantics |
-| `shutdown` | `ShutdownSignal` lifecycle and graceful drain |
-| `keepalive` | HTTP/1.1 keep-alive over one TCP connection (5 GETs) |
-| `language` | `LanguageDetector` built-in + custom regex patterns |
-
-**Per Cargo feature flag** (one example per flag):
-
-| Example | Feature | What it shows |
+| Example | Command | What it shows |
 |---|---|---|
-| `async` | `async` | `run_blocking` + `start_async` |
-| `batch` | `batch` | Concurrent file reads with parallelism cap |
-| `streaming` | `streaming` | `ChunkStream` chunked file iteration |
-| `optimized` | `optimized` | Const MIME table + bitset language detection |
-| `observability` | `observability` | Structured tracing via `tracing-subscriber` |
-| `http2` | `http2` | h2c server + framed body roundtrip |
-| `http3` | `http3-profile` | ALPN routing + fallback chain |
-| `perf` | `high-perf` | `start_high_perf` with `PerfLimits` |
-| `multi` | `high-perf-multi-thread` | `start_high_perf_multi_thread` |
-| `autotune` | `autotune` | Host-profile-derived `PerfLimits` |
-| `ratelimit` | `distributed-rate-limit` | Distributed limiter + in-memory backend |
-| `tenant` | `multi-tenant` | Per-tenant config + scoped secrets |
-| `tls` | `enterprise` | TLS / mTLS policy primitives |
-| `auth` | `enterprise` | API-key + JWT verifiers |
-| `config` | `enterprise` | TOML config + hot-reload watcher |
-| `enterprise` | `enterprise` | RBAC adapter + per-request enforcement |
+| `hello` | `cargo run --example hello` | Minimal `Server::new` |
+| `builder` | `cargo run --example builder` | `ServerBuilder` fluent API (CORS, headers, timeouts, validation) |
+| `request` | `cargo run --example request` | `Request::from_stream` parse over a real TCP roundtrip |
+| `response` | `cargo run --example response` | `Response::send` + `set_connection_header` |
+| `errors` | `cargo run --example errors` | `ServerError` constructors |
+| `policies` | `cargo run --example policies` | CORS / security headers / timeouts / rate-limit / cache TTL |
+| `pool` | `cargo run --example pool` | `ThreadPool` and `ConnectionPool` bounded-resource semantics |
+| `shutdown` | `cargo run --example shutdown` | `ShutdownSignal` lifecycle and graceful drain |
+| `keepalive` | `cargo run --example keepalive` | HTTP/1.1 keep-alive over one TCP connection (5 GETs) |
+| `language` | `cargo run --example language` | `LanguageDetector` built-in + custom regex patterns |
+
+**Per Cargo feature flag** (one example per flag — copy-paste ready):
+
+| Example | Command | What it shows |
+|---|---|---|
+| `async` | `cargo run --features async --example async` | `run_blocking` + `start_async` |
+| `batch` | `cargo run --features batch --example batch` | Concurrent file reads with parallelism cap |
+| `streaming` | `cargo run --features streaming --example streaming` | `ChunkStream` chunked file iteration |
+| `optimized` | `cargo run --features optimized --example optimized` | Const MIME table + bitset language detection |
+| `observability` | `cargo run --features observability --example observability` | Structured tracing via `tracing-subscriber` |
+| `http2` | `cargo run --features http2 --example http2` | h2c server + framed body roundtrip |
+| `http3` | `cargo run --features http3-profile --example http3` | ALPN routing + fallback chain |
+| `perf` | `cargo run --features high-perf --example perf` | `start_high_perf` with `PerfLimits` |
+| `multi` | `cargo run --features high-perf-multi-thread --example multi` | `start_high_perf_multi_thread` |
+| `autotune` | `cargo run --features autotune --example autotune` | Host-profile-derived `PerfLimits` |
+| `ratelimit` | `cargo run --features distributed-rate-limit --example ratelimit` | Distributed limiter + in-memory backend |
+| `tenant` | `cargo run --features multi-tenant --example tenant` | Per-tenant config + scoped secrets |
+| `tls` | `cargo run --features enterprise --example tls` | TLS / mTLS policy primitives |
+| `auth` | `cargo run --features enterprise --example auth` | API-key + JWT verifiers |
+| `config` | `cargo run --features enterprise --example config` | TOML config + hot-reload watcher |
+| `enterprise` | `cargo run --features enterprise --example enterprise` | RBAC adapter + per-request enforcement |
 
 **Tooling / runners**:
 
-| Example | What it does |
-|---|---|
-| `full` | Unified runner across every enabled feature |
-| `all` | Spawns every other example via `cargo run --example` |
-| `bench` | Bombardier target — driven by `scripts/load_test.sh` |
-| `dhat` | Heap-profile harness writing `dhat-heap.json` |
+| Example | Command | What it does |
+|---|---|---|
+| `full` | `cargo run --example full` (or `--all-features` for full coverage) | Unified runner across every enabled feature |
+| `all` | `cargo run --example all` | Spawns every other example via `cargo run --example` |
+| `bench` | `scripts/load_test.sh <mode>` | Bombardier target — sync / async / high-perf / high-perf-mt / http2 |
+| `dhat` | `cargo run --release --features high-perf --example dhat` | Heap-profile harness writing `dhat-heap.json` |
 
 ---
 
