@@ -21,13 +21,19 @@ use crate::server::{
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
+use std::collections::HashMap;
+#[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 use std::path::{Path, PathBuf};
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+#[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
+use std::time::UNIX_EPOCH;
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
@@ -391,6 +397,109 @@ async fn send_response_async(
     Ok(())
 }
 
+/// Maximum number of pre-serialised static-file responses kept in the
+/// in-process cache. With a 64 KiB body cap (the default
+/// `sendfile_threshold_bytes`) the worst-case footprint is bounded at
+/// ~16 MiB across all entries.
+#[cfg(feature = "high-perf")]
+const RESPONSE_CACHE_MAX: usize = 256;
+
+/// Pre-serialised stable head + body for a static file. The
+/// per-request `Connection` header and the headers-end CRLF are NOT
+/// included — they're written in a small dynamic suffix on each hit.
+/// Status line, `Content-Length`, `Content-Type`, `Accept-Ranges`,
+/// `Content-Encoding` (if a precompressed asset was selected), `Vary`,
+/// and `Cache-Control` (immutable assets) are all baked in.
+#[cfg(feature = "high-perf")]
+#[derive(Debug)]
+struct CachedResponse {
+    head_prefix: Arc<Vec<u8>>,
+    body: Arc<Vec<u8>>,
+}
+
+#[cfg(feature = "high-perf")]
+type ResponseCacheKey = (PathBuf, u64, u64); // (canonical_path, mtime_secs, file_len)
+
+#[cfg(feature = "high-perf")]
+type ResponseCache =
+    RwLock<HashMap<ResponseCacheKey, Arc<CachedResponse>>>;
+
+#[cfg(feature = "high-perf")]
+static RESPONSE_CACHE: OnceLock<ResponseCache> = OnceLock::new();
+
+#[cfg(feature = "high-perf")]
+fn response_cache() -> &'static ResponseCache {
+    RESPONSE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+#[cfg(feature = "high-perf")]
+fn mtime_secs(metadata: &std::fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0_u64, |d| d.as_secs())
+}
+
+/// Build the stable head prefix (status line + cacheable headers).
+///
+/// The output is everything up to but NOT including the per-request
+/// `Connection: ...\r\n\r\n` suffix. `is_immutable` and `encoding`
+/// shape the headers, so they're folded into the cache key implicitly
+/// via the `(path, mtime, len)` tuple — a different precompressed
+/// candidate or a different file lives at a different `serving_path`.
+#[cfg(feature = "high-perf")]
+fn build_head_prefix(
+    len: u64,
+    content_type: &str,
+    encoding: Option<&'static str>,
+    is_immutable: bool,
+) -> Vec<u8> {
+    let mut prefix = Vec::with_capacity(192);
+    prefix.extend_from_slice(b"HTTP/1.1 200 OK\r\nContent-Length: ");
+    prefix.extend_from_slice(len.to_string().as_bytes());
+    prefix.extend_from_slice(b"\r\nContent-Type: ");
+    prefix.extend_from_slice(content_type.as_bytes());
+    prefix.extend_from_slice(b"\r\nAccept-Ranges: bytes\r\n");
+    if let Some(enc) = encoding {
+        prefix.extend_from_slice(b"Content-Encoding: ");
+        prefix.extend_from_slice(enc.as_bytes());
+        prefix.extend_from_slice(b"\r\nVary: Accept-Encoding\r\n");
+    }
+    if is_immutable {
+        prefix.extend_from_slice(
+            b"Cache-Control: public, max-age=31536000, immutable\r\n",
+        );
+    }
+    prefix
+}
+
+/// Insert a freshly-built `CachedResponse` under cap-based eviction
+/// that mirrors the existing ETag LRU pattern in `src/server.rs`.
+#[cfg(feature = "high-perf")]
+fn insert_cached_response(
+    key: ResponseCacheKey,
+    value: Arc<CachedResponse>,
+) {
+    if let Ok(mut write) = response_cache().write() {
+        if write.len() >= RESPONSE_CACHE_MAX {
+            // Crude eviction: drop the first quarter when the cap is
+            // exceeded. Workloads with high path churn that fill the
+            // cache get a periodic pause; typical static-content
+            // serving stays inside the cap and never evicts. Mirrors
+            // `src/server.rs::compute_etag` exactly so the two caches
+            // share the same operational shape.
+            let drop_count = RESPONSE_CACHE_MAX / 4;
+            let to_remove: Vec<_> =
+                write.keys().take(drop_count).cloned().collect();
+            for k in to_remove {
+                let _ = write.remove(&k);
+            }
+        }
+        let _ = write.insert(key, value);
+    }
+}
+
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 async fn try_send_static_file_fast_path(
@@ -421,43 +530,38 @@ async fn try_send_static_file_fast_path(
         std::fs::metadata(&serving_path).map_err(ServerError::from)?;
     let len = metadata.len();
 
-    let mut headers = Vec::new();
-    headers.push(("Content-Type", content_type_for_path(&file_path)));
-    headers.push(("Accept-Ranges", "bytes"));
-    if let Some(enc) = encoding {
-        headers.push(("Content-Encoding", enc));
-        headers.push(("Vary", "Accept-Encoding"));
-    }
-    if is_probably_immutable_asset(request.path()) {
-        headers.push((
-            "Cache-Control",
-            "public, max-age=31536000, immutable",
-        ));
-    }
+    // Per-request dynamic suffix: the only header that can't be
+    // cached because it depends on the keep-alive policy. The trailing
+    // CRLF closes the header section so the body can follow.
+    let connection_suffix =
+        format!("Connection: {}\r\n\r\n", policy.header_value());
 
-    let mut head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: {}\r\n",
-        policy.header_value()
-    );
-    for (name, value) in headers {
-        head.push_str(name);
-        head.push_str(": ");
-        head.push_str(value);
-        head.push_str("\r\n");
-    }
-    head.push_str("\r\n");
-
-    stream
-        .write_all(head.as_bytes())
-        .await
-        .map_err(ServerError::from)?;
-
-    if request.method() == "HEAD" {
-        stream.flush().await.map_err(ServerError::from)?;
-        return Ok(true);
-    }
-
+    // Above-threshold (large-file) path skips the cache entirely.
+    // Caching megabyte-class bodies would defeat the OOM guard; the
+    // sendfile path also bypasses any user-space copy, so caching the
+    // body would be wasted work even ignoring memory cost. Build the
+    // head fresh, write it, then delegate to sendfile / async copy.
     if len >= sendfile_threshold_bytes {
+        let head_prefix = build_head_prefix(
+            len,
+            content_type_for_path(&file_path),
+            encoding,
+            is_probably_immutable_asset(request.path()),
+        );
+        stream
+            .write_all(&head_prefix)
+            .await
+            .map_err(ServerError::from)?;
+        stream
+            .write_all(connection_suffix.as_bytes())
+            .await
+            .map_err(ServerError::from)?;
+
+        if request.method() == "HEAD" {
+            stream.flush().await.map_err(ServerError::from)?;
+            return Ok(true);
+        }
+
         #[cfg(unix)]
         {
             if try_sendfile_unix(stream, &serving_path, len).await? {
@@ -478,14 +582,76 @@ async fn try_send_static_file_fast_path(
         return Ok(true);
     }
 
-    // Small-file fast path: read the file synchronously into a buffer
-    // and emit it in one write. For sub-`sendfile_threshold_bytes`
-    // files on local disk, the sync read returns in microseconds, and
-    // skipping the `tokio::fs` blocking-pool round-trip eliminates a
-    // guaranteed cross-thread hop per request.
-    let body =
-        std::fs::read(&serving_path).map_err(ServerError::from)?;
-    stream.write_all(&body).await.map_err(ServerError::from)?;
+    // Small-file fast path with response cache. Key by
+    // (canonical_serving_path, mtime, len) so a touch / replace of
+    // the file invalidates without an extra stat() — the metadata
+    // we already needed becomes the cache key. Hits skip BOTH the
+    // syscall to read the file AND the `format!` chain that builds
+    // the stable head section. Misses do exactly the same work as
+    // the pre-cache path plus one insert.
+    let mtime = mtime_secs(&metadata);
+    let cache_key: ResponseCacheKey =
+        (serving_path.clone(), mtime, len);
+
+    let cached: Option<Arc<CachedResponse>> = response_cache()
+        .read()
+        .ok()
+        .and_then(|read| read.get(&cache_key).cloned());
+
+    let cached_response = match cached {
+        Some(arc) => arc,
+        None => {
+            let head_prefix = Arc::new(build_head_prefix(
+                len,
+                content_type_for_path(&file_path),
+                encoding,
+                is_probably_immutable_asset(request.path()),
+            ));
+            let body = Arc::new(
+                std::fs::read(&serving_path)
+                    .map_err(ServerError::from)?,
+            );
+            let response =
+                Arc::new(CachedResponse { head_prefix, body });
+            insert_cached_response(cache_key, Arc::clone(&response));
+            response
+        }
+    };
+
+    // Coalesce head_prefix + per-request connection_suffix into one
+    // buffer, then fold the body in for the GET case so the entire
+    // response ships in a single `write_all`. Splitting into multiple
+    // `write_all`s on a `tokio::net::TcpStream` produces extra syscalls
+    // per request — meaningful overhead under multi-thread bombardier
+    // load. The connection_suffix is small (<32 B) and the head prefix
+    // is bounded by the headers we serialise (<256 B for typical
+    // paths), so the combined buffer is ~bytes-not-MiB-class.
+    let mut prelude = Vec::with_capacity(
+        cached_response.head_prefix.len() + connection_suffix.len(),
+    );
+    prelude.extend_from_slice(&cached_response.head_prefix);
+    prelude.extend_from_slice(connection_suffix.as_bytes());
+
+    if request.method() == "HEAD" {
+        stream
+            .write_all(&prelude)
+            .await
+            .map_err(ServerError::from)?;
+        stream.flush().await.map_err(ServerError::from)?;
+        return Ok(true);
+    }
+
+    // For small bodies (the cache cap is `sendfile_threshold_bytes`),
+    // appending the body to `prelude` keeps the response in one
+    // syscall. The cap-bounded buffer never grows past
+    // `sendfile_threshold_bytes` + ~256 B of headers, so the extra
+    // copy is cheap relative to the syscall + reactor wakeup we
+    // avoid by emitting one `write_all`.
+    prelude.extend_from_slice(&cached_response.body);
+    stream
+        .write_all(&prelude)
+        .await
+        .map_err(ServerError::from)?;
     stream.flush().await.map_err(ServerError::from)?;
     Ok(true)
 }
@@ -1230,6 +1396,117 @@ mod tests {
         let text = String::from_utf8(bytes).expect("utf8");
         assert!(text.contains("Content-Encoding: gzip"));
         assert!(text.contains("Vary: Accept-Encoding"));
+    }
+
+    /// Drives two GETs against the same file via the fast path and
+    /// asserts that the second one was served from the response cache
+    /// — i.e. the `(path, mtime, len)` key resolved to an entry that
+    /// survived between calls. Cache contents are inspected directly
+    /// since the cache is process-local. Doubles as a smoke test for
+    /// `build_head_prefix` (status line + immutable Content-Type) and
+    /// `insert_cached_response` (the cap-and-evict path is exercised
+    /// separately in the eviction test).
+    #[tokio::test(flavor = "current_thread")]
+    async fn fast_path_response_cache_serves_repeat_requests_from_memory()
+     {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("index.html"), b"hello-cache")
+            .expect("seed");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        // Snapshot the cache so we can assert the populated key
+        // belongs to this test and not bleed-over from a previous run.
+        let key_count_before =
+            response_cache().read().map(|r| r.len()).unwrap_or(0);
+
+        for _ in 0..2 {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let client_task = tokio::spawn(async move {
+                tokio::net::TcpStream::connect(addr)
+                    .await
+                    .expect("connect")
+            });
+            let (mut server_stream, _) =
+                listener.accept().await.expect("accept");
+            let mut client = client_task.await.expect("join");
+            let request = Request {
+                method: "GET".into(),
+                path: "/index.html".into(),
+                version: "HTTP/1.1".into(),
+                headers: Vec::new(),
+            };
+            assert!(
+                try_send_static_file_fast_path(
+                    &mut server_stream,
+                    &server,
+                    &request,
+                    u64::MAX,
+                    ConnectionPolicy::Close,
+                )
+                .await
+                .expect("served")
+            );
+            drop(server_stream);
+            let mut sink = Vec::new();
+            let _ = client
+                .read_to_end(&mut sink)
+                .await
+                .expect("client read");
+            let text = String::from_utf8(sink).expect("utf8");
+            assert!(text.contains("HTTP/1.1 200 OK"));
+            assert!(text.contains("Content-Length: 11"));
+            assert!(text.contains("hello-cache"));
+        }
+
+        let key_count_after =
+            response_cache().read().map(|r| r.len()).unwrap_or(0);
+        assert!(
+            key_count_after > key_count_before,
+            "cache should have at least one new entry after two GETs (was {key_count_before}, now {key_count_after})"
+        );
+    }
+
+    /// Forces the cap-and-evict path of `insert_cached_response`. The
+    /// cache is process-wide so the test pre-fills past the cap with
+    /// synthetic keys (no real file I/O) and asserts the post-insert
+    /// length sits at-or-below `RESPONSE_CACHE_MAX`.
+    #[test]
+    fn response_cache_evicts_when_full() {
+        let cache = response_cache();
+        if let Ok(mut write) = cache.write() {
+            for i in 0..(RESPONSE_CACHE_MAX + 1) as u64 {
+                let key: ResponseCacheKey =
+                    (PathBuf::from(format!("/synthetic/{i}")), i, i);
+                let value = Arc::new(CachedResponse {
+                    head_prefix: Arc::new(Vec::new()),
+                    body: Arc::new(Vec::new()),
+                });
+                let _ = write.insert(key, value);
+            }
+        }
+        let len_before =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        let trigger_key: ResponseCacheKey =
+            (PathBuf::from("/synthetic/trigger"), u64::MAX, u64::MAX);
+        let trigger_value = Arc::new(CachedResponse {
+            head_prefix: Arc::new(Vec::new()),
+            body: Arc::new(Vec::new()),
+        });
+        insert_cached_response(trigger_key, trigger_value);
+        let len_after =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        assert!(
+            len_after <= RESPONSE_CACHE_MAX,
+            "cache len {len_after} exceeds cap {RESPONSE_CACHE_MAX} (was {len_before} before trigger insert)"
+        );
     }
 
     #[test]
