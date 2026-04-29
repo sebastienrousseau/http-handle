@@ -16,4 +16,4 @@
 
 ## Example
 
-See: `examples/feature_distributed_rate_limit.rs`.
+See: `examples/ratelimit.rs` (run via `./scripts/example.sh ratelimit`).

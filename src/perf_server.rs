@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 //! High-performance async-first HTTP/1 server primitives.
 
@@ -14,7 +14,10 @@ use crate::request::Request;
 use crate::response::Response;
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use crate::server::{Server, build_response_for_request_with_metrics};
+use crate::server::{
+    ConnectionPolicy, KEEPALIVE_IDLE_TIMEOUT, MAX_KEEPALIVE_REQUESTS,
+    Server, build_response_for_request_with_metrics,
+};
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
@@ -24,10 +27,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+#[cfg(feature = "high-perf")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
+use std::time::UNIX_EPOCH;
 
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
@@ -74,6 +80,58 @@ impl Default for PerfLimits {
             sendfile_threshold_bytes: 64 * 1024,
         }
     }
+}
+
+/// Synchronous entry point that builds a multi-threaded Tokio runtime
+/// and runs [`start_high_perf`] on it. Use this on multi-core hosts when
+/// [`start_high_perf`] called from a `current_thread` runtime is leaving
+/// cores idle — bombardier load tests showed sync `Server::start`
+/// outperforming the async path 3× under 256-connection keep-alive
+/// purely because the async path was funneling all connections through
+/// one OS thread.
+///
+/// `worker_threads = None` lets Tokio pick (defaults to logical CPU
+/// count). Pass `Some(n)` to pin the worker count for reproducible
+/// benchmarking or container CPU limits.
+///
+/// Owning the runtime internally means callers don't need to add
+/// `rt-multi-thread` to their tokio features list and don't need to
+/// reason about runtime flavour mismatches between the bind site and
+/// the accept loop.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use http_handle::Server;
+/// use http_handle::perf_server::{start_high_perf_multi_thread, PerfLimits};
+///
+/// let server = Server::new("127.0.0.1:8080", ".");
+/// // Default worker count (one per logical core).
+/// let _ = start_high_perf_multi_thread(server, PerfLimits::default(), None);
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when the multi-thread runtime cannot be built or
+/// the underlying [`start_high_perf`] accept loop fails.
+///
+/// # Panics
+///
+/// This function does not panic.
+#[cfg(feature = "high-perf-multi-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "high-perf-multi-thread")))]
+pub fn start_high_perf_multi_thread(
+    server: Server,
+    limits: PerfLimits,
+    worker_threads: Option<usize>,
+) -> Result<(), ServerError> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    let _ = builder.enable_all();
+    if let Some(n) = worker_threads {
+        let _ = builder.worker_threads(n.max(1));
+    }
+    let runtime = builder.build().map_err(ServerError::from)?;
+    runtime.block_on(start_high_perf(server, limits))
 }
 
 /// Starts an async-first accept loop with adaptive backpressure.
@@ -160,36 +218,72 @@ async fn handle_async_connection(
     server: &Server,
     limits: &PerfLimits,
 ) -> Result<(), ServerError> {
-    let timeout_dur =
+    // Disable Nagle so header+body are not held by the kernel waiting
+    // for a delayed ACK on small payloads.
+    let _ = stream.set_nodelay(true);
+    let request_timeout =
         server.request_timeout().unwrap_or(Duration::from_secs(30));
 
+    // HTTP/1.1 persistent-connection loop. The first request gets the
+    // configured per-request timeout; subsequent requests on the same
+    // TCP connection get the tighter idle timeout so an inactive client
+    // is reaped promptly without holding the inflight permit. Re-uses
+    // ConnectionPolicy from the sync path so HTTP/1.0 and explicit
+    // `Connection: close` semantics match across server entry points.
+    // Read buffer hoisted out of the loop: dhat profiling showed this
+    // 16 KiB allocation at the top of every iteration was the single
+    // largest source of per-request heap pressure (~41 % of total
+    // allocated bytes across 1024 sequential roundtrips). Reusing it
+    // drops 16 KiB × N requests of allocator traffic on every kept-
+    // alive connection. Each iteration parses `&buffer[..read]` so
+    // stale bytes from a prior iteration are never observed.
     let mut buffer = vec![0_u8; 16 * 1024];
-    let read = timeout(timeout_dur, stream.read(&mut buffer))
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        let read_deadline = if i == 0 {
+            request_timeout
+        } else {
+            KEEPALIVE_IDLE_TIMEOUT
+        };
+        let read = match timeout(
+            read_deadline,
+            stream.read(&mut buffer),
+        )
         .await
-        .map_err(|_| ServerError::invalid_request("request timeout"))?
-        .map_err(ServerError::from)?;
+        {
+            Ok(Ok(0)) => return Ok(()), // peer FIN
+            Ok(Ok(n)) => n,
+            Ok(Err(_)) | Err(_) => return Ok(()), // read error or idle timeout
+        };
 
-    if read == 0 {
-        return Ok(());
+        let request = parse_request_from_bytes(&buffer[..read])?;
+        let policy = ConnectionPolicy::from_request(&request);
+
+        if try_send_static_file_fast_path(
+            &mut stream,
+            server,
+            &request,
+            limits.sendfile_threshold_bytes,
+            policy,
+        )
+        .await?
+        {
+            if policy == ConnectionPolicy::Close {
+                return Ok(());
+            }
+            continue;
+        }
+
+        let mut response =
+            build_response_for_request_with_metrics(server, &request);
+        response.set_connection_header(policy.header_value());
+        if send_response_async(&mut stream, &response).await.is_err() {
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
     }
-    buffer.truncate(read);
-
-    let request = parse_request_from_bytes(&buffer)?;
-
-    if try_send_static_file_fast_path(
-        &mut stream,
-        server,
-        &request,
-        limits.sendfile_threshold_bytes,
-    )
-    .await?
-    {
-        return Ok(());
-    }
-
-    let response =
-        build_response_for_request_with_metrics(server, &request);
-    send_response_async(&mut stream, &response).await
+    Ok(())
 }
 
 #[cfg(feature = "high-perf")]
@@ -224,16 +318,20 @@ fn parse_request_from_bytes(
         })?
         .to_string();
 
-    let mut headers = HashMap::new();
+    let mut headers: Vec<(String, String)> = Vec::with_capacity(8);
     for line in lines {
         if line.is_empty() {
             break;
         }
-        if let Some((name, value)) = line.split_once(':') {
-            let _ = headers.insert(
+        // SIMD ':' search via memchr; same rationale as src/request.rs.
+        let bytes = line.as_bytes();
+        if let Some(colon) = memchr::memchr(b':', bytes) {
+            let (name, value) = line.split_at(colon);
+            let value = &value[1..];
+            headers.push((
                 name.trim().to_ascii_lowercase(),
                 value.trim().to_string(),
-            );
+            ));
         }
     }
 
@@ -251,7 +349,13 @@ async fn send_response_async(
     stream: &mut tokio::net::TcpStream,
     response: &Response,
 ) -> Result<(), ServerError> {
-    let mut header = format!(
+    use std::fmt::Write as _;
+    // Pre-size for typical response sizes; growth is rare. Mirrors P0.A
+    // on the sync path: no intermediate format!() allocations on each
+    // header line — write! goes directly into the existing buffer.
+    let mut header = String::with_capacity(256);
+    let _ = write!(
+        &mut header,
         "HTTP/1.1 {} {}\r\n",
         response.status_code, response.status_text
     );
@@ -265,13 +369,14 @@ async fn send_response_async(
         if name.eq_ignore_ascii_case("connection") {
             has_connection = true;
         }
-        header.push_str(&format!("{}: {}\r\n", name, value));
+        let _ = write!(&mut header, "{}: {}\r\n", name, value);
     }
     if !has_content_length {
-        header.push_str(&format!(
+        let _ = write!(
+            &mut header,
             "Content-Length: {}\r\n",
             response.body.len()
-        ));
+        );
     }
     if !has_connection {
         header.push_str("Connection: close\r\n");
@@ -292,6 +397,109 @@ async fn send_response_async(
     Ok(())
 }
 
+/// Maximum number of pre-serialised static-file responses kept in the
+/// in-process cache. With a 64 KiB body cap (the default
+/// `sendfile_threshold_bytes`) the worst-case footprint is bounded at
+/// ~16 MiB across all entries.
+#[cfg(feature = "high-perf")]
+const RESPONSE_CACHE_MAX: usize = 256;
+
+/// Pre-serialised stable head + body for a static file. The
+/// per-request `Connection` header and the headers-end CRLF are NOT
+/// included — they're written in a small dynamic suffix on each hit.
+/// Status line, `Content-Length`, `Content-Type`, `Accept-Ranges`,
+/// `Content-Encoding` (if a precompressed asset was selected), `Vary`,
+/// and `Cache-Control` (immutable assets) are all baked in.
+#[cfg(feature = "high-perf")]
+#[derive(Debug)]
+struct CachedResponse {
+    head_prefix: Arc<Vec<u8>>,
+    body: Arc<Vec<u8>>,
+}
+
+#[cfg(feature = "high-perf")]
+type ResponseCacheKey = (PathBuf, u64, u64); // (canonical_path, mtime_secs, file_len)
+
+#[cfg(feature = "high-perf")]
+type ResponseCache =
+    RwLock<HashMap<ResponseCacheKey, Arc<CachedResponse>>>;
+
+#[cfg(feature = "high-perf")]
+static RESPONSE_CACHE: OnceLock<ResponseCache> = OnceLock::new();
+
+#[cfg(feature = "high-perf")]
+fn response_cache() -> &'static ResponseCache {
+    RESPONSE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+#[cfg(feature = "high-perf")]
+fn mtime_secs(metadata: &std::fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0_u64, |d| d.as_secs())
+}
+
+/// Build the stable head prefix (status line + cacheable headers).
+///
+/// The output is everything up to but NOT including the per-request
+/// `Connection: ...\r\n\r\n` suffix. `is_immutable` and `encoding`
+/// shape the headers, so they're folded into the cache key implicitly
+/// via the `(path, mtime, len)` tuple — a different precompressed
+/// candidate or a different file lives at a different `serving_path`.
+#[cfg(feature = "high-perf")]
+fn build_head_prefix(
+    len: u64,
+    content_type: &str,
+    encoding: Option<&'static str>,
+    is_immutable: bool,
+) -> Vec<u8> {
+    let mut prefix = Vec::with_capacity(192);
+    prefix.extend_from_slice(b"HTTP/1.1 200 OK\r\nContent-Length: ");
+    prefix.extend_from_slice(len.to_string().as_bytes());
+    prefix.extend_from_slice(b"\r\nContent-Type: ");
+    prefix.extend_from_slice(content_type.as_bytes());
+    prefix.extend_from_slice(b"\r\nAccept-Ranges: bytes\r\n");
+    if let Some(enc) = encoding {
+        prefix.extend_from_slice(b"Content-Encoding: ");
+        prefix.extend_from_slice(enc.as_bytes());
+        prefix.extend_from_slice(b"\r\nVary: Accept-Encoding\r\n");
+    }
+    if is_immutable {
+        prefix.extend_from_slice(
+            b"Cache-Control: public, max-age=31536000, immutable\r\n",
+        );
+    }
+    prefix
+}
+
+/// Insert a freshly-built `CachedResponse` under cap-based eviction
+/// that mirrors the existing ETag LRU pattern in `src/server.rs`.
+#[cfg(feature = "high-perf")]
+fn insert_cached_response(
+    key: ResponseCacheKey,
+    value: Arc<CachedResponse>,
+) {
+    if let Ok(mut write) = response_cache().write() {
+        if write.len() >= RESPONSE_CACHE_MAX {
+            // Crude eviction: drop the first quarter when the cap is
+            // exceeded. Workloads with high path churn that fill the
+            // cache get a periodic pause; typical static-content
+            // serving stays inside the cap and never evicts. Mirrors
+            // `src/server.rs::compute_etag` exactly so the two caches
+            // share the same operational shape.
+            let drop_count = RESPONSE_CACHE_MAX / 4;
+            let to_remove: Vec<_> =
+                write.keys().take(drop_count).cloned().collect();
+            for k in to_remove {
+                let _ = write.remove(&k);
+            }
+        }
+        let _ = write.insert(key, value);
+    }
+}
+
 #[cfg(feature = "high-perf")]
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 async fn try_send_static_file_fast_path(
@@ -299,6 +507,7 @@ async fn try_send_static_file_fast_path(
     server: &Server,
     request: &Request,
     sendfile_threshold_bytes: u64,
+    policy: ConnectionPolicy,
 ) -> Result<bool, ServerError> {
     if request.method() != "GET" && request.method() != "HEAD" {
         return Ok(false);
@@ -307,9 +516,11 @@ async fn try_send_static_file_fast_path(
         return Ok(false);
     }
 
-    let Some(file_path) =
-        resolve_static_path(server.document_root(), request.path())
-    else {
+    let Some(file_path) = resolve_static_path(
+        server.document_root(),
+        server.canonical_document_root(),
+        request.path(),
+    ) else {
         return Ok(false);
     };
 
@@ -319,42 +530,38 @@ async fn try_send_static_file_fast_path(
         std::fs::metadata(&serving_path).map_err(ServerError::from)?;
     let len = metadata.len();
 
-    let mut headers = Vec::new();
-    headers.push(("Content-Type", content_type_for_path(&file_path)));
-    headers.push(("Accept-Ranges", "bytes"));
-    if let Some(enc) = encoding {
-        headers.push(("Content-Encoding", enc));
-        headers.push(("Vary", "Accept-Encoding"));
-    }
-    if is_probably_immutable_asset(request.path()) {
-        headers.push((
-            "Cache-Control",
-            "public, max-age=31536000, immutable",
-        ));
-    }
+    // Per-request dynamic suffix: the only header that can't be
+    // cached because it depends on the keep-alive policy. The trailing
+    // CRLF closes the header section so the body can follow.
+    let connection_suffix =
+        format!("Connection: {}\r\n\r\n", policy.header_value());
 
-    let mut head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: close\r\n"
-    );
-    for (name, value) in headers {
-        head.push_str(name);
-        head.push_str(": ");
-        head.push_str(value);
-        head.push_str("\r\n");
-    }
-    head.push_str("\r\n");
-
-    stream
-        .write_all(head.as_bytes())
-        .await
-        .map_err(ServerError::from)?;
-
-    if request.method() == "HEAD" {
-        stream.flush().await.map_err(ServerError::from)?;
-        return Ok(true);
-    }
-
+    // Above-threshold (large-file) path skips the cache entirely.
+    // Caching megabyte-class bodies would defeat the OOM guard; the
+    // sendfile path also bypasses any user-space copy, so caching the
+    // body would be wasted work even ignoring memory cost. Build the
+    // head fresh, write it, then delegate to sendfile / async copy.
     if len >= sendfile_threshold_bytes {
+        let head_prefix = build_head_prefix(
+            len,
+            content_type_for_path(&file_path),
+            encoding,
+            is_probably_immutable_asset(request.path()),
+        );
+        stream
+            .write_all(&head_prefix)
+            .await
+            .map_err(ServerError::from)?;
+        stream
+            .write_all(connection_suffix.as_bytes())
+            .await
+            .map_err(ServerError::from)?;
+
+        if request.method() == "HEAD" {
+            stream.flush().await.map_err(ServerError::from)?;
+            return Ok(true);
+        }
+
         #[cfg(unix)]
         {
             if try_sendfile_unix(stream, &serving_path, len).await? {
@@ -362,12 +569,87 @@ async fn try_send_static_file_fast_path(
                 return Ok(true);
             }
         }
+        // Above-threshold path that didn't sendfile (non-unix, or
+        // sendfile rejected): defer to the async file copy so the
+        // reactor isn't pinned reading a multi-MiB file synchronously.
+        let mut file = tokio::fs::File::open(&serving_path)
+            .await
+            .map_err(ServerError::from)?;
+        let _bytes_copied = tokio::io::copy(&mut file, stream)
+            .await
+            .map_err(ServerError::from)?;
+        stream.flush().await.map_err(ServerError::from)?;
+        return Ok(true);
     }
 
-    let mut file = tokio::fs::File::open(&serving_path)
-        .await
-        .map_err(ServerError::from)?;
-    let _bytes_copied = tokio::io::copy(&mut file, stream)
+    // Small-file fast path with response cache. Key by
+    // (canonical_serving_path, mtime, len) so a touch / replace of
+    // the file invalidates without an extra stat() — the metadata
+    // we already needed becomes the cache key. Hits skip BOTH the
+    // syscall to read the file AND the `format!` chain that builds
+    // the stable head section. Misses do exactly the same work as
+    // the pre-cache path plus one insert.
+    let mtime = mtime_secs(&metadata);
+    let cache_key: ResponseCacheKey =
+        (serving_path.clone(), mtime, len);
+
+    let cached: Option<Arc<CachedResponse>> = response_cache()
+        .read()
+        .ok()
+        .and_then(|read| read.get(&cache_key).cloned());
+
+    let cached_response = match cached {
+        Some(arc) => arc,
+        None => {
+            let head_prefix = Arc::new(build_head_prefix(
+                len,
+                content_type_for_path(&file_path),
+                encoding,
+                is_probably_immutable_asset(request.path()),
+            ));
+            let body = Arc::new(
+                std::fs::read(&serving_path)
+                    .map_err(ServerError::from)?,
+            );
+            let response =
+                Arc::new(CachedResponse { head_prefix, body });
+            insert_cached_response(cache_key, Arc::clone(&response));
+            response
+        }
+    };
+
+    // Coalesce head_prefix + per-request connection_suffix into one
+    // buffer, then fold the body in for the GET case so the entire
+    // response ships in a single `write_all`. Splitting into multiple
+    // `write_all`s on a `tokio::net::TcpStream` produces extra syscalls
+    // per request — meaningful overhead under multi-thread bombardier
+    // load. The connection_suffix is small (<32 B) and the head prefix
+    // is bounded by the headers we serialise (<256 B for typical
+    // paths), so the combined buffer is ~bytes-not-MiB-class.
+    let mut prelude = Vec::with_capacity(
+        cached_response.head_prefix.len() + connection_suffix.len(),
+    );
+    prelude.extend_from_slice(&cached_response.head_prefix);
+    prelude.extend_from_slice(connection_suffix.as_bytes());
+
+    if request.method() == "HEAD" {
+        stream
+            .write_all(&prelude)
+            .await
+            .map_err(ServerError::from)?;
+        stream.flush().await.map_err(ServerError::from)?;
+        return Ok(true);
+    }
+
+    // For small bodies (the cache cap is `sendfile_threshold_bytes`),
+    // appending the body to `prelude` keeps the response in one
+    // syscall. The cap-bounded buffer never grows past
+    // `sendfile_threshold_bytes` + ~256 B of headers, so the extra
+    // copy is cheap relative to the syscall + reactor wakeup we
+    // avoid by emitting one `write_all`.
+    prelude.extend_from_slice(&cached_response.body);
+    stream
+        .write_all(&prelude)
         .await
         .map_err(ServerError::from)?;
     stream.flush().await.map_err(ServerError::from)?;
@@ -378,9 +660,9 @@ async fn try_send_static_file_fast_path(
 #[cfg_attr(docsrs, doc(cfg(feature = "high-perf")))]
 fn resolve_static_path(
     root: &Path,
+    canonical_root: &Path,
     request_path: &str,
 ) -> Option<PathBuf> {
-    let canonical_root = std::fs::canonicalize(root).ok()?;
     let mut path = root.to_path_buf();
     let rel = request_path.trim_start_matches('/');
 
@@ -401,19 +683,17 @@ fn resolve_static_path(
         return None;
     }
 
-    if resolved.is_dir() {
+    let meta = std::fs::metadata(&resolved).ok()?;
+    if meta.is_dir() {
         let index = resolved.join("index.html");
-        if index.is_file() {
+        let index_meta = std::fs::metadata(&index).ok()?;
+        if index_meta.is_file() {
             return Some(index);
         }
         return None;
     }
 
-    if resolved.is_file() {
-        Some(resolved)
-    } else {
-        None
-    }
+    if meta.is_file() { Some(resolved) } else { None }
 }
 
 #[cfg(feature = "high-perf")]
@@ -501,13 +781,30 @@ async fn try_sendfile_unix(
     len: u64,
 ) -> Result<bool, ServerError> {
     use std::os::fd::AsRawFd;
-    let file = std::fs::File::open(path).map_err(ServerError::from)?;
+    // File::open is a blocking syscall; run it on the blocking pool so
+    // the Tokio reactor thread is never stalled opening files.
+    let path_owned = path.to_path_buf();
+    let file = tokio::task::spawn_blocking(move || {
+        std::fs::File::open(path_owned)
+    })
+    .await
+    .map_err(|e| ServerError::TaskFailed(e.to_string()))?
+    .map_err(ServerError::from)?;
     let mut offset: libc::off_t = 0;
     let mut sent: u64 = 0;
 
     while sent < len {
         let remaining = (len - sent) as usize;
         let chunk = remaining.min(1 << 20);
+        // Safety: both fds are owned for the duration of this call —
+        // `stream` is borrowed from the caller (the TcpStream lives on
+        // the stack frame above) and `file` is the local std::fs::File
+        // we just opened. `offset` is a local `libc::off_t` we write
+        // through. `chunk` is bounded above by `len - sent` and below
+        // by 1 (the loop guard `sent < len`). The kernel either fills
+        // the requested transfer or returns the count actually sent;
+        // we handle the negative-rc and EAGAIN cases below.
+        #[allow(unsafe_code)]
         let rc = unsafe {
             libc::sendfile(
                 stream.as_raw_fd(),
@@ -549,7 +846,6 @@ async fn try_sendfile_unix(
 #[cfg(all(test, feature = "high-perf"))]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
     use tokio::time::Duration;
@@ -594,14 +890,22 @@ mod tests {
         std::fs::create_dir(root.join("nested")).expect("mkdir");
         std::fs::write(root.join("nested").join("index.html"), "n")
             .expect("write");
+        let canonical_root =
+            std::fs::canonicalize(root).expect("canonical");
 
-        let p1 = resolve_static_path(root, "/").expect("root index");
+        let p1 = resolve_static_path(root, &canonical_root, "/")
+            .expect("root index");
         assert!(p1.ends_with("index.html"));
-        let p2 =
-            resolve_static_path(root, "/nested").expect("nested index");
+        let p2 = resolve_static_path(root, &canonical_root, "/nested")
+            .expect("nested index");
         assert!(p2.ends_with("nested/index.html"));
         assert!(
-            resolve_static_path(root, "/../../etc/passwd").is_none()
+            resolve_static_path(
+                root,
+                &canonical_root,
+                "/../../etc/passwd"
+            )
+            .is_none()
         );
 
         assert_eq!(
@@ -652,9 +956,8 @@ mod tests {
         let base = dir.path().join("index.html");
         std::fs::write(&base, "x").expect("base");
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req_gz = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -669,11 +972,10 @@ mod tests {
 
         std::fs::write(format!("{}.zst", base.display()), "x")
             .expect("zst");
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let headers = vec![(
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        );
+        )];
         let req_zst = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -686,11 +988,10 @@ mod tests {
 
         std::fs::write(format!("{}.br", base.display()), "x")
             .expect("br");
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let headers = vec![(
             "accept-encoding".to_string(),
             "br,zstd,gzip".to_string(),
-        );
+        )];
         let req_br = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -701,9 +1002,8 @@ mod tests {
         assert!(p.ends_with("index.html.br"));
         assert_eq!(e, Some("br"));
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req_gz_missing = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -736,7 +1036,7 @@ mod tests {
             method: "GET".into(),
             path: "/app-abcdef12.js".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -758,6 +1058,7 @@ mod tests {
                 &server_clone,
                 &request,
                 u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("send")
@@ -778,7 +1079,7 @@ mod tests {
             method: "HEAD".into(),
             path: "/app-abcdef12.js".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -799,6 +1100,7 @@ mod tests {
                 &server_clone,
                 &request_head,
                 u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("send")
@@ -839,21 +1141,21 @@ mod tests {
             method: "POST".into(),
             path: "/index.html".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         assert!(
             !try_send_static_file_fast_path(
                 &mut server_stream,
                 &server,
                 &post_req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("ok")
         );
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert("range".into(), "bytes=0-3".into());
+        let headers = vec![("range".into(), "bytes=0-3".into())];
         let range_req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -865,7 +1167,8 @@ mod tests {
                 &mut server_stream,
                 &server,
                 &range_req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("ok")
@@ -1056,9 +1359,8 @@ mod tests {
             .build()
             .expect("server");
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("accept-encoding".to_string(), "gzip".to_string());
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
         let req = Request {
             method: "GET".into(),
             path: "/index.html".into(),
@@ -1082,7 +1384,8 @@ mod tests {
                 &mut server_stream,
                 &server,
                 &req,
-                u64::MAX
+                u64::MAX,
+                ConnectionPolicy::Close,
             )
             .await
             .expect("served")
@@ -1095,13 +1398,129 @@ mod tests {
         assert!(text.contains("Vary: Accept-Encoding"));
     }
 
+    /// Drives two GETs against the same file via the fast path and
+    /// asserts that the second one was served from the response cache
+    /// — i.e. the `(path, mtime, len)` key resolved to an entry that
+    /// survived between calls. Cache contents are inspected directly
+    /// since the cache is process-local. Doubles as a smoke test for
+    /// `build_head_prefix` (status line + immutable Content-Type) and
+    /// `insert_cached_response` (the cap-and-evict path is exercised
+    /// separately in the eviction test).
+    #[tokio::test(flavor = "current_thread")]
+    async fn fast_path_response_cache_serves_repeat_requests_from_memory()
+     {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("index.html"), b"hello-cache")
+            .expect("seed");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        // Snapshot the cache so we can assert the populated key
+        // belongs to this test and not bleed-over from a previous run.
+        let key_count_before =
+            response_cache().read().map(|r| r.len()).unwrap_or(0);
+
+        for _ in 0..2 {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let client_task = tokio::spawn(async move {
+                tokio::net::TcpStream::connect(addr)
+                    .await
+                    .expect("connect")
+            });
+            let (mut server_stream, _) =
+                listener.accept().await.expect("accept");
+            let mut client = client_task.await.expect("join");
+            let request = Request {
+                method: "GET".into(),
+                path: "/index.html".into(),
+                version: "HTTP/1.1".into(),
+                headers: Vec::new(),
+            };
+            assert!(
+                try_send_static_file_fast_path(
+                    &mut server_stream,
+                    &server,
+                    &request,
+                    u64::MAX,
+                    ConnectionPolicy::Close,
+                )
+                .await
+                .expect("served")
+            );
+            drop(server_stream);
+            let mut sink = Vec::new();
+            let _ = client
+                .read_to_end(&mut sink)
+                .await
+                .expect("client read");
+            let text = String::from_utf8(sink).expect("utf8");
+            assert!(text.contains("HTTP/1.1 200 OK"));
+            assert!(text.contains("Content-Length: 11"));
+            assert!(text.contains("hello-cache"));
+        }
+
+        let key_count_after =
+            response_cache().read().map(|r| r.len()).unwrap_or(0);
+        assert!(
+            key_count_after > key_count_before,
+            "cache should have at least one new entry after two GETs (was {key_count_before}, now {key_count_after})"
+        );
+    }
+
+    /// Forces the cap-and-evict path of `insert_cached_response`. The
+    /// cache is process-wide so the test pre-fills past the cap with
+    /// synthetic keys (no real file I/O) and asserts the post-insert
+    /// length sits at-or-below `RESPONSE_CACHE_MAX`.
+    #[test]
+    fn response_cache_evicts_when_full() {
+        let cache = response_cache();
+        if let Ok(mut write) = cache.write() {
+            for i in 0..(RESPONSE_CACHE_MAX + 1) as u64 {
+                let key: ResponseCacheKey =
+                    (PathBuf::from(format!("/synthetic/{i}")), i, i);
+                let value = Arc::new(CachedResponse {
+                    head_prefix: Arc::new(Vec::new()),
+                    body: Arc::new(Vec::new()),
+                });
+                let _ = write.insert(key, value);
+            }
+        }
+        let len_before =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        let trigger_key: ResponseCacheKey =
+            (PathBuf::from("/synthetic/trigger"), u64::MAX, u64::MAX);
+        let trigger_value = Arc::new(CachedResponse {
+            head_prefix: Arc::new(Vec::new()),
+            body: Arc::new(Vec::new()),
+        });
+        insert_cached_response(trigger_key, trigger_value);
+        let len_after =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        assert!(
+            len_after <= RESPONSE_CACHE_MAX,
+            "cache len {len_after} exceeds cap {RESPONSE_CACHE_MAX} (was {len_before} before trigger insert)"
+        );
+    }
+
     #[test]
     fn resolve_static_path_handles_missing_dir_index_and_immutable_edge_cases()
      {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::create_dir(root.join("dir-no-index")).expect("mkdir");
-        assert!(resolve_static_path(root, "/dir-no-index").is_none());
+        let canonical_root =
+            std::fs::canonicalize(root).expect("canonical");
+        assert!(
+            resolve_static_path(root, &canonical_root, "/dir-no-index")
+                .is_none()
+        );
         assert!(!is_probably_immutable_asset("/assets/noext"));
         assert!(!is_probably_immutable_asset("/assets/file.js"));
     }
@@ -1119,7 +1538,7 @@ mod tests {
             method: "GET".into(),
             path: "/missing.txt".into(),
             version: "HTTP/1.1".into(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1138,6 +1557,7 @@ mod tests {
             &server,
             &request,
             u64::MAX,
+            ConnectionPolicy::Close,
         )
         .await
         .expect("missing file should map to false");
@@ -1227,5 +1647,429 @@ mod tests {
         task.abort();
         let join = task.await;
         assert!(join.is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_high_perf_drops_connections_when_queue_is_full() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("probe bind");
+        let addr = probe.local_addr().expect("probe addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        // One in-flight, zero queued: second concurrent connect must be
+        // rejected via the `queued_now > max_queue` branch.
+        let limits = PerfLimits {
+            max_inflight: 1,
+            max_queue: 0,
+            sendfile_threshold_bytes: u64::MAX,
+        };
+
+        let task = tokio::spawn(async move {
+            let _ = start_high_perf(server, limits).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Hold the single in-flight slot by connecting but never sending a
+        // request — the async handler stays blocked in `read` until timeout.
+        let _hold = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("first connect");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        // Fire multiple short-lived connections; each should be accepted
+        // then immediately dropped by the server (queue full / acquire timeout).
+        let mut dropped = 0_usize;
+        for _ in 0..8 {
+            let mut probe_stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("probe connect");
+            // The server drops the accepted socket in its `continue`, so the
+            // read end returns EOF quickly.
+            let mut buf = [0_u8; 8];
+            let read = timeout(
+                Duration::from_millis(200),
+                probe_stream.read(&mut buf),
+            )
+            .await;
+            if matches!(read, Ok(Ok(0))) {
+                dropped += 1;
+            }
+        }
+        assert!(
+            dropped > 0,
+            "expected at least one connection to be dropped by queue guard",
+        );
+
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_high_perf_falls_through_queue_timeout_path() {
+        // Exercise the `queued_now <= max_queue` branch where the connection
+        // waits on `acquire_owned` with a bounded timeout. A single in-flight
+        // slot is held indefinitely so queued connects never acquire; they
+        // drop after the 20ms acquire timeout.
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("probe bind");
+        let addr = probe.local_addr().expect("probe addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let limits = PerfLimits {
+            max_inflight: 1,
+            // Allow one queued connect so `queued_now <= max_queue` and we hit
+            // the timeout-acquire branch.
+            max_queue: 4,
+            sendfile_threshold_bytes: u64::MAX,
+        };
+
+        let task = tokio::spawn(async move {
+            let _ = start_high_perf(server, limits).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Hold the in-flight slot.
+        let _hold = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("first connect");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        // Queue up a few more — each waits on the 20ms acquire timeout
+        // then gets dropped.
+        for _ in 0..3 {
+            let mut probe_stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("probe connect");
+            let mut buf = [0_u8; 8];
+            let _ = timeout(
+                Duration::from_millis(200),
+                probe_stream.read(&mut buf),
+            )
+            .await;
+        }
+
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_send_static_file_fast_path_invokes_sendfile_threshold()
+    {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let body: Vec<u8> = (0..2048_u32).map(|i| i as u8).collect();
+        std::fs::write(root.join("blob.bin"), &body).expect("write");
+
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+        let request = Request {
+            method: "GET".into(),
+            path: "/blob.bin".into(),
+            version: "HTTP/1.1".into(),
+            headers: Vec::new(),
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            tokio::net::TcpStream::connect(addr).await.expect("connect")
+        });
+        let (mut server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+
+        // Threshold = 0 forces the sendfile fast-path branch. On Linux it
+        // succeeds; on other Unix platforms it falls through to tokio::io::copy.
+        let served = try_send_static_file_fast_path(
+            &mut server_stream,
+            &server,
+            &request,
+            0,
+            ConnectionPolicy::Close,
+        )
+        .await
+        .expect("served");
+        assert!(served);
+        drop(server_stream);
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let head_end = bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("header terminator");
+        let head_text =
+            String::from_utf8_lossy(&bytes[..head_end]).to_string();
+        assert!(head_text.contains("HTTP/1.1 200 OK"));
+        assert_eq!(&bytes[head_end + 4..], body.as_slice());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn try_sendfile_unix_non_linux_returns_false() {
+        // The non-Linux/Android Unix fallback unconditionally returns `Ok(false)`.
+        // Linux has its own impl so we skip the assertion there.
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("f.bin");
+            std::fs::write(&path, b"x").expect("write");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            drop(tokio::spawn(async move {
+                tokio::net::TcpStream::connect(addr).await.expect("c")
+            }));
+            let (server_stream, _) =
+                listener.accept().await.expect("accept");
+            let sent = try_sendfile_unix(&server_stream, &path, 1)
+                .await
+                .expect("stub");
+            assert!(!sent);
+        }
+    }
+
+    #[test]
+    fn resolve_static_path_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        std::fs::create_dir(&root).expect("mkroot");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&outside).expect("mkoutside");
+        std::fs::write(outside.join("secret.txt"), "shh")
+            .expect("write secret");
+        let canonical_root =
+            std::fs::canonicalize(&root).expect("canonical");
+        #[cfg(unix)]
+        {
+            let link = root.join("link.txt");
+            std::os::unix::fs::symlink(
+                outside.join("secret.txt"),
+                &link,
+            )
+            .expect("symlink");
+            assert!(
+                resolve_static_path(
+                    &root,
+                    &canonical_root,
+                    "/link.txt"
+                )
+                .is_none(),
+                "symlink pointing outside root must not resolve",
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = outside;
+            let _ = canonical_root;
+        }
+    }
+
+    /// Covers the `Connection: close` early-return after a successful
+    /// fast-path send inside `handle_async_connection`. Drives a fresh
+    /// connection that asks for keep-alive close so the loop exits via
+    /// the post-fast-path `if policy == ConnectionPolicy::Close`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_closes_after_fast_path_when_requested()
+     {
+        use crate::Server;
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok")
+            .expect("write");
+        std::fs::create_dir(dir.path().join("404")).expect("404 dir");
+        std::fs::write(dir.path().join("404/index.html"), b"404")
+            .expect("write 404");
+
+        let probe =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr").to_string();
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr)
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let server_task = tokio::spawn(async move {
+            let _ =
+                start_high_perf(server, PerfLimits::default()).await;
+        });
+
+        // Wait for the server to bind.
+        for _ in 0..50 {
+            if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // Single roundtrip with explicit `Connection: close` so the
+        // server's post-fast-path branch returns Ok(()) instead of
+        // looping into another idle wait.
+        let mut s = tokio::net::TcpStream::connect(&addr)
+            .await
+            .expect("connect");
+        s.write_all(
+            b"GET /index.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .expect("write");
+        let mut sink = Vec::with_capacity(512);
+        let _ = s.read_to_end(&mut sink).await.expect("read");
+        let body = String::from_utf8_lossy(&sink);
+        assert!(body.contains("HTTP/1.1 200 OK"));
+        assert!(body.contains("Connection: close"));
+
+        server_task.abort();
+        let _ = server_task.await;
+    }
+
+    /// Drives the post-fallback `Connection: close` branch of
+    /// [`handle_async_connection`]. The fast path returns `false` for
+    /// a missing file, the keep-alive loop falls through to
+    /// `build_response_for_request_with_metrics`, sends the 404, and
+    /// must then exit via the `policy == ConnectionPolicy::Close`
+    /// arm rather than blocking on another idle read. Exercises the
+    /// async-path counterpart to the sync `handle_connection` close
+    /// branch.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_async_connection_closes_after_404_when_requested() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir(root.join("404")).expect("404 dir");
+        std::fs::write(root.join("404/index.html"), "not found")
+            .expect("404");
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let client_task = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .expect("connect");
+            stream
+                .write_all(
+                    b"GET /missing.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("write");
+            stream
+        });
+        let (server_stream, _) =
+            listener.accept().await.expect("accept");
+        let mut client = client_task.await.expect("join");
+        // The handler must return promptly because the
+        // `Connection: close` policy short-circuits the keep-alive
+        // loop after the 404 is written. If the close branch were
+        // missing the loop would re-enter the read path and block on
+        // the idle-timeout instead.
+        handle_async_connection(
+            server_stream,
+            &server,
+            &PerfLimits::default(),
+        )
+        .await
+        .expect("handled");
+
+        let mut bytes = Vec::new();
+        let _ = client.read_to_end(&mut bytes).await.expect("read");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(text.contains("Connection: close"));
+    }
+
+    /// Smoke test for the multi-thread entry point: serves one request,
+    /// then aborts the runtime via panic. This verifies the function
+    /// builds the runtime and dispatches into the existing accept loop;
+    /// throughput is validated separately via the bombardier load harness.
+    #[cfg(feature = "high-perf-multi-thread")]
+    #[test]
+    fn start_high_perf_multi_thread_serves_one_request() {
+        use crate::Server;
+        use std::io::{Read, Write};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("index.html"), "ok-mt")
+            .expect("write");
+        std::fs::create_dir(dir.path().join("404")).expect("404 dir");
+        std::fs::write(dir.path().join("404/index.html"), b"404")
+            .expect("write 404");
+
+        let probe =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr").to_string();
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr)
+            .document_root(dir.path().to_string_lossy().as_ref())
+            .build()
+            .expect("server");
+
+        // Two worker threads is enough to prove the runtime is
+        // multi-threaded without paying for full CPU detection cost
+        // in the test harness.
+        let server_thread = std::thread::spawn(move || {
+            let _ = start_high_perf_multi_thread(
+                server,
+                PerfLimits::default(),
+                Some(2),
+            );
+        });
+
+        // Wait for bind, then send one Connection: close request.
+        let mut connected = None;
+        for _ in 0..50 {
+            if let Ok(s) = std::net::TcpStream::connect(&addr) {
+                connected = Some(s);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let mut s = connected.expect("server never bound");
+        s.write_all(
+            b"GET /index.html HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n",
+        )
+        .expect("write");
+        let mut sink = Vec::with_capacity(256);
+        let _ = s.read_to_end(&mut sink).expect("read");
+        let body = String::from_utf8_lossy(&sink);
+        assert!(body.contains("HTTP/1.1 200 OK"), "got {body:?}");
+        assert!(body.contains("ok-mt"), "got {body:?}");
+
+        // Server thread is in an infinite accept loop; leak it. The
+        // process exits cleanly after the test runner finishes.
+        drop(server_thread);
     }
 }

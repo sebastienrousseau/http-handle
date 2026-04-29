@@ -45,10 +45,11 @@ transport integration remains modular.
 
 ## Benchmark Coverage
 
-- Benchmark target: `examples/benchmark_target.rs`
-- Modes:
+- Benchmark target: `examples/bench.rs`
+- Modes (selected via `HTTP_HANDLE_MODE`):
   - `sync`
   - `async`
   - `high-perf`
+  - `high-perf-mt`
   - `http2`
 - CI perf matrix: `.github/workflows/perf-regression.yml`

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 // src/request.rs
 
@@ -9,7 +9,6 @@
 //! header normalization, and explicit malformed-request errors.
 
 use crate::error::ServerError;
-use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, BufRead, BufReader};
 use std::net::TcpStream;
@@ -54,13 +53,12 @@ fn map_read_error(error: io::Error) -> ServerError {
 ///
 /// ```rust
 /// use http_handle::request::Request;
-/// use std::collections::HashMap;
 ///
 /// let request = Request {
 ///     method: "GET".to_string(),
 ///     path: "/".to_string(),
 ///     version: "HTTP/1.1".to_string(),
-///     headers: HashMap::new(),
+///     headers: Vec::new(),
 /// };
 /// assert_eq!(request.method(), "GET");
 /// ```
@@ -78,7 +76,13 @@ pub struct Request {
     /// HTTP version of the request.
     pub version: String,
     /// Parsed request headers (header-name lowercased).
-    pub headers: HashMap<String, String>,
+    ///
+    /// Stored as `Vec<(String, String)>` rather than a `HashMap` —
+    /// realistic request payloads carry well under 32 headers, so a
+    /// linear scan in `Request::header` outperforms hashing for both
+    /// lookup latency and per-request allocator pressure (no hash table
+    /// to grow + rehash).
+    pub headers: Vec<(String, String)>,
 }
 
 impl Request {
@@ -240,15 +244,15 @@ impl Request {
     ///
     /// ```rust
     /// use http_handle::request::Request;
-    /// use std::collections::HashMap;
     ///
-    /// let mut headers = HashMap::new();
-    /// headers.insert("content-type".to_string(), "text/plain".to_string());
     /// let request = Request {
     ///     method: "GET".to_string(),
     ///     path: "/".to_string(),
     ///     version: "HTTP/1.1".to_string(),
-    ///     headers,
+    ///     headers: vec![(
+    ///         "content-type".to_string(),
+    ///         "text/plain".to_string(),
+    ///     )],
     /// };
     /// assert_eq!(request.header("Content-Type"), Some("text/plain"));
     /// ```
@@ -258,13 +262,16 @@ impl Request {
     /// This function does not panic.
     #[doc(alias = "header lookup")]
     pub fn header(&self, name: &str) -> Option<&str> {
+        // Linear scan: header counts in real traffic are O(10), so a
+        // case-insensitive equality check beats hashing the lookup key.
         self.headers
-            .get(&name.to_ascii_lowercase())
-            .map(String::as_str)
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     /// Returns all parsed headers.
-    pub fn headers(&self) -> &HashMap<String, String> {
+    pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
 
@@ -306,12 +313,15 @@ impl Request {
 
     fn read_headers<R: BufRead>(
         reader: &mut R,
-    ) -> Result<HashMap<String, String>, ServerError> {
-        let mut headers = HashMap::with_capacity(16);
+    ) -> Result<Vec<(String, String)>, ServerError> {
+        let mut headers: Vec<(String, String)> = Vec::with_capacity(16);
         let mut total_bytes = 0_usize;
+        // Reuse a single line buffer across iterations to avoid allocating
+        // a fresh String per header line.
+        let mut line = String::new();
 
         loop {
-            let mut line = String::new();
+            line.clear();
             let bytes =
                 reader.read_line(&mut line).map_err(map_read_error)?;
             if bytes == 0 {
@@ -333,21 +343,32 @@ impl Request {
                     "Header line too long",
                 ));
             }
-            let (name, value) =
-                trimmed.split_once(':').ok_or_else(|| {
+            // memchr finds the first ':' via SIMD (NEON on Apple
+            // Silicon, AVX2 on x86_64). For typical 12–40 byte header
+            // lines the win is small; for longer lines (cookies,
+            // user-agent) it's measurable.
+            let bytes = trimmed.as_bytes();
+            let colon =
+                memchr::memchr(b':', bytes).ok_or_else(|| {
                     ServerError::invalid_request(
                         "Malformed header line",
                     )
                 })?;
+            // SAFETY: `colon` is an index returned by memchr inside
+            // `bytes`, which is the byte view of the `&str` `trimmed`.
+            // ASCII ':' is exactly one UTF-8 byte, so the split lands
+            // on a UTF-8 boundary.
+            let (name, value) = trimmed.split_at(colon);
+            let value = &value[1..];
             if headers.len() >= MAX_HEADER_COUNT {
                 return Err(ServerError::invalid_request(
                     "Too many request headers",
                 ));
             }
-            let _ = headers.insert(
+            headers.push((
                 name.trim().to_ascii_lowercase(),
                 value.trim().to_string(),
-            );
+            ));
         }
 
         Ok(headers)
@@ -568,5 +589,120 @@ mod tests {
         let request = Request::from_stream(&stream).unwrap();
         assert_eq!(request.header("host"), Some("localhost"));
         assert_eq!(request.header("range"), Some("bytes=0-1"));
+    }
+
+    fn run_request_bytes(
+        bytes: Vec<u8>,
+    ) -> Result<Request, ServerError> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _ = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = stream.write_all(&bytes);
+        });
+        let stream = TcpStream::connect(addr).unwrap();
+        Request::from_stream(&stream)
+    }
+
+    #[test]
+    fn test_missing_method_returns_error() {
+        let err = run_request_bytes(b"\r\n".to_vec()).unwrap_err();
+        assert!(
+            err.to_string().contains("missing method"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_too_many_parts_returns_error() {
+        let err =
+            run_request_bytes(b"GET / HTTP/1.1 extra\r\n".to_vec())
+                .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("expected") && msg.contains("parts"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_malformed_header_returns_error() {
+        let err = run_request_bytes(
+            b"GET / HTTP/1.1\r\nmissing-colon-line\r\n\r\n".to_vec(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("Malformed header line"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_header_line_too_long_returns_error() {
+        let mut req = Vec::from("GET / HTTP/1.1\r\nX: ");
+        req.extend(std::iter::repeat_n(b'A', MAX_HEADER_LINE_LENGTH));
+        req.extend_from_slice(b"\r\n\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Header line too long"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_header_section_too_large_returns_error() {
+        // Many moderately sized header lines (each under MAX_HEADER_LINE_LENGTH)
+        // whose cumulative byte count exceeds MAX_HEADER_BYTES before the
+        // per-line or header-count guards trip.
+        let mut req = Vec::from("GET / HTTP/1.1\r\n");
+        let filler: String = "A".repeat(8000);
+        // Ten ~8KiB headers = ~80 KiB > 64 KiB cap.
+        for i in 0..10 {
+            req.extend_from_slice(
+                format!("H{i}: {filler}\r\n").as_bytes(),
+            );
+        }
+        req.extend_from_slice(b"\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Header section too large"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_too_many_headers_returns_error() {
+        let mut req = Vec::from("GET / HTTP/1.1\r\n");
+        for i in 0..=MAX_HEADER_COUNT {
+            req.extend_from_slice(format!("H{i}: v\r\n").as_bytes());
+        }
+        req.extend_from_slice(b"\r\n");
+        let err = run_request_bytes(req).unwrap_err();
+        assert!(
+            err.to_string().contains("Too many request headers"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_missing_http_version_returns_error() {
+        // Two-token request line: method + path, no version.
+        // Triggers the third let-else branch (missing HTTP version).
+        let err = run_request_bytes(b"GET /\r\n".to_vec()).unwrap_err();
+        assert!(
+            err.to_string().contains("missing HTTP version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_request_display_formats_method_path_version() {
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        assert_eq!(format!("{request}"), "GET /index.html HTTP/1.1");
     }
 }

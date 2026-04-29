@@ -1,12 +1,25 @@
+// Crate-wide unsafe policy: deny by default. Specific authorized sites
+// (libc::sendfile in perf_server::try_sendfile_unix, process-env mutation
+// in tenant_isolation and runtime_autotune tests) carry an explicit
+// `#[allow(unsafe_code)]` attribute with a justifying comment. Using
+// `deny` rather than `forbid` so those targeted exceptions actually
+// compile under Rust 2024.
+#![deny(unsafe_code)]
+// Rustdoc hygiene: catch broken intra-doc links, bare URLs, and
+// unindented examples at doc-build time so doc rot is loud rather
+// than silent. `missing_docs` is already enforced by the rust lint
+// section in Cargo.toml.
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::bare_urls)]
+#![deny(rustdoc::invalid_html_tags)]
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 // src/lib.rs
-
 #![doc = include_str!("../README.md")]
 #![doc(
-    html_favicon_url = "https://kura.pro/http-handle/images/favicon.ico",
-    html_logo_url = "https://kura.pro/http-handle/images/logos/http-handle.svg",
+    html_favicon_url = "https://cloudcdn.pro/http-handle/v1/favicon.ico",
+    html_logo_url = "https://cloudcdn.pro/http-handle/v1/logos/http-handle.svg",
     html_root_url = "https://docs.rs/http-handle"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]

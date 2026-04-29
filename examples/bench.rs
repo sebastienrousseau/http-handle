@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2023 - 2026 HTTP Handle
+
+//! Benchmark target server used by CI performance matrix.
+//!
+//! Run via `scripts/load_test.sh <mode>` or directly:
+//!     HTTP_HANDLE_MODE=high-perf-mt \
+//!     HTTP_HANDLE_ADDR=127.0.0.1:8090 \
+//!     HTTP_HANDLE_ROOT=./public \
+//!     cargo run --release --example bench --features 'async,high-perf,high-perf-multi-thread,http2'
+//!
+//! Modes: `sync` (default), `async`, `high-perf`, `high-perf-mt`, `http2`.
+//! `HTTP_HANDLE_WORKERS=N` pins worker count for the multi-thread mode.
+
+use http_handle::Server;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let address = std::env::var("HTTP_HANDLE_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:8090".to_string());
+    let root = std::env::var("HTTP_HANDLE_ROOT")
+        .unwrap_or_else(|_| ".".to_string());
+    let mode = std::env::var("HTTP_HANDLE_MODE")
+        .unwrap_or_else(|_| "sync".to_string());
+
+    let server = Server::builder()
+        .address(&address)
+        .document_root(&root)
+        .static_cache_ttl_secs(300)
+        .build()?;
+
+    match mode.as_str() {
+        "sync" => server.start()?,
+        "async" => run_async(server)?,
+        "high-perf" => run_high_perf(server)?,
+        "high-perf-mt" => run_high_perf_mt(server)?,
+        "http2" => run_http2(server)?,
+        other => {
+            return Err(format!("unsupported mode: {other}").into());
+        }
+    }
+    Ok(())
+}
+
+fn run_async(server: Server) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "async")]
+    {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime
+            .block_on(http_handle::async_server::start_async(server))?;
+        Ok(())
+    }
+    #[cfg(not(feature = "async"))]
+    {
+        let _ = server;
+        Err("enable feature 'async' for HTTP_HANDLE_MODE=async".into())
+    }
+}
+
+fn run_high_perf(
+    server: Server,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "high-perf")]
+    {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let limits = {
+            #[cfg(feature = "autotune")]
+            {
+                if std::env::var("HTTP_HANDLE_AUTOTUNE").ok().as_deref()
+                    == Some("1")
+                {
+                    let profile =
+                        http_handle::runtime_autotune::detect_host_profile();
+                    http_handle::runtime_autotune::RuntimeTuneRecommendation::from_profile(profile).into_perf_limits()
+                } else {
+                    http_handle::perf_server::PerfLimits {
+                        max_inflight: 512,
+                        max_queue: 2048,
+                        sendfile_threshold_bytes: 64 * 1024,
+                    }
+                }
+            }
+            #[cfg(not(feature = "autotune"))]
+            {
+                http_handle::perf_server::PerfLimits {
+                    max_inflight: 512,
+                    max_queue: 2048,
+                    sendfile_threshold_bytes: 64 * 1024,
+                }
+            }
+        };
+        runtime.block_on(http_handle::perf_server::start_high_perf(
+            server, limits,
+        ))?;
+        Ok(())
+    }
+    #[cfg(not(feature = "high-perf"))]
+    {
+        let _ = server;
+        Err("enable feature 'high-perf' for HTTP_HANDLE_MODE=high-perf"
+            .into())
+    }
+}
+
+fn run_high_perf_mt(
+    server: Server,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "high-perf-multi-thread")]
+    {
+        let limits = {
+            #[cfg(feature = "autotune")]
+            {
+                if std::env::var("HTTP_HANDLE_AUTOTUNE").ok().as_deref()
+                    == Some("1")
+                {
+                    let profile =
+                        http_handle::runtime_autotune::detect_host_profile();
+                    http_handle::runtime_autotune::RuntimeTuneRecommendation::from_profile(profile).into_perf_limits()
+                } else {
+                    http_handle::perf_server::PerfLimits {
+                        max_inflight: 512,
+                        max_queue: 2048,
+                        sendfile_threshold_bytes: 64 * 1024,
+                    }
+                }
+            }
+            #[cfg(not(feature = "autotune"))]
+            {
+                http_handle::perf_server::PerfLimits {
+                    max_inflight: 512,
+                    max_queue: 2048,
+                    sendfile_threshold_bytes: 64 * 1024,
+                }
+            }
+        };
+        let workers = std::env::var("HTTP_HANDLE_WORKERS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok());
+        http_handle::perf_server::start_high_perf_multi_thread(
+            server, limits, workers,
+        )?;
+        Ok(())
+    }
+    #[cfg(not(feature = "high-perf-multi-thread"))]
+    {
+        let _ = server;
+        Err("enable feature 'high-perf-multi-thread' for HTTP_HANDLE_MODE=high-perf-mt".into())
+    }
+}
+
+fn run_http2(server: Server) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "http2")]
+    {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime
+            .block_on(http_handle::http2_server::start_http2(server))?;
+        Ok(())
+    }
+    #[cfg(not(feature = "http2"))]
+    {
+        let _ = server;
+        Err("enable feature 'http2' for HTTP_HANDLE_MODE=http2".into())
+    }
+}

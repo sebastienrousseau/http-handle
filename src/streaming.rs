@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 //! Pull-based chunked streaming utilities for large files.
 
@@ -117,7 +117,11 @@ mod tests {
         let mut exhausted = false;
         let mut reader = ErrReader;
         let item = read_next_chunk(&mut reader, 8, &mut exhausted);
-        assert!(matches!(item, Some(Err(ServerError::Io(_)))));
+        // Lift the variant check out of `assert!(matches!(...))` so
+        // llvm-cov sees a single boolean expression rather than the
+        // macro's internal "did not match" sub-region.
+        let is_io_err = matches!(item, Some(Err(ServerError::Io(_))));
+        assert!(is_io_err);
         assert!(exhausted);
     }
 
@@ -150,7 +154,8 @@ mod tests {
         let tmp = TempDir::new().expect("tmp");
         let missing = tmp.path().join("does-not-exist.txt");
         let result = ChunkStream::from_file(&missing, 4);
-        assert!(matches!(result, Err(ServerError::Io(_))));
+        let is_io_err = matches!(result, Err(ServerError::Io(_)));
+        assert!(is_io_err);
     }
 
     #[test]
@@ -161,9 +166,9 @@ mod tests {
         let mut stream =
             ChunkStream::from_file(&file, 1).expect("stream open");
 
-        assert!(
-            matches!(stream.next(), Some(Ok(chunk)) if chunk == b"x")
-        );
+        let chunk = stream.next();
+        let is_x = matches!(&chunk, Some(Ok(b)) if b == &b"x".to_vec());
+        assert!(is_x, "unexpected first chunk: {chunk:?}");
         assert!(stream.next().is_none());
         assert!(stream.next().is_none());
     }

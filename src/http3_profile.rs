@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 //! HTTP/3 production profile primitives.
 //!
@@ -589,5 +589,123 @@ mod tests {
         assert!(line.contains("http3.route=h2"));
         assert!(line.contains("reason=negotiated"));
         assert!(line.contains("chain=h3>h2>http/1.1"));
+    }
+
+    #[test]
+    fn quic_tuning_balanced_preset_is_reachable() {
+        let tuning = Http3ProductionProfile::default().quic_tuning();
+        assert_eq!(tuning.max_bidi_streams, 128);
+        assert_eq!(tuning.datagram_receive_buffer_bytes, 1024 * 1024);
+        assert_eq!(tuning.keep_alive_interval_ms, 10_000);
+    }
+
+    #[test]
+    fn route_for_alpn_returns_http11_when_disabled() {
+        let p = Http3ProductionProfile {
+            enabled: false,
+            ..Http3ProductionProfile::default()
+        };
+        assert_eq!(
+            p.route_for_alpn(Some(b"h3")),
+            ProtocolRoute::Http11
+        );
+    }
+
+    #[test]
+    fn route_for_client_alpns_returns_http11_when_disabled() {
+        let p = Http3ProductionProfile {
+            enabled: false,
+            ..Http3ProductionProfile::default()
+        };
+        let offered = vec![b"h3".to_vec()];
+        assert_eq!(
+            p.route_for_client_alpns(&offered),
+            ProtocolRoute::Http11
+        );
+    }
+
+    #[test]
+    fn route_for_client_alpns_falls_back_when_no_match() {
+        let p = Http3ProductionProfile {
+            alpn_order: vec!["h3".into(), "h2".into()],
+            ..Http3ProductionProfile::default()
+        };
+        let offered = vec![b"http/1.1".to_vec()];
+        assert_eq!(
+            p.route_for_client_alpns(&offered),
+            ProtocolRoute::Http11
+        );
+    }
+
+    #[test]
+    fn fallback_chain_skips_unknown_protocols() {
+        let p = Http3ProductionProfile {
+            alpn_order: vec!["gopher".into(), "h2".into()],
+            ..Http3ProductionProfile::default()
+        };
+        assert_eq!(p.fallback_chain(), vec![ProtocolRoute::Http2]);
+    }
+
+    #[test]
+    fn fallback_chain_defaults_to_http11_when_empty() {
+        let p = Http3ProductionProfile {
+            alpn_order: vec!["gopher".into(), "ftp".into()],
+            ..Http3ProductionProfile::default()
+        };
+        assert_eq!(p.fallback_chain(), vec![ProtocolRoute::Http11]);
+    }
+
+    #[test]
+    fn resolve_route_reports_h3_disabled() {
+        let p = Http3ProductionProfile {
+            enabled: false,
+            ..Http3ProductionProfile::default()
+        };
+        let decision = p.resolve_route(Some(b"h3"), true);
+        assert_eq!(decision.reason, RouteReason::H3Disabled);
+    }
+
+    #[test]
+    fn resolve_route_accepts_h3_draft_as_negotiated() {
+        let p = Http3ProductionProfile::default();
+        let decision = p.resolve_route(Some(b"h3-29"), true);
+        assert_eq!(decision.selected, ProtocolRoute::Http3);
+        assert_eq!(decision.reason, RouteReason::Negotiated);
+    }
+
+    #[test]
+    fn resolve_route_marks_unknown_alpn_unsupported() {
+        let p = Http3ProductionProfile::default();
+        let decision = p.resolve_route(Some(b"spdy/3"), true);
+        assert_eq!(decision.reason, RouteReason::AlpnUnsupported);
+    }
+
+    #[test]
+    fn resolve_route_reports_alpn_missing_when_no_negotiation() {
+        let p = Http3ProductionProfile::default();
+        let decision = p.resolve_route(None, true);
+        assert_eq!(decision.reason, RouteReason::AlpnMissing);
+    }
+
+    #[test]
+    fn route_reason_display_covers_all_variants() {
+        assert_eq!(RouteReason::Negotiated.to_string(), "negotiated");
+        assert_eq!(RouteReason::H3Disabled.to_string(), "h3_disabled");
+        assert_eq!(
+            RouteReason::AlpnMissing.to_string(),
+            "alpn_missing"
+        );
+        assert_eq!(
+            RouteReason::AlpnUnsupported.to_string(),
+            "alpn_unsupported"
+        );
+        assert_eq!(
+            RouteReason::H3HandshakeFailedFallback.to_string(),
+            "h3_handshake_failed_fallback"
+        );
+        assert_eq!(
+            RouteReason::H3HandshakeFailedNoFallback.to_string(),
+            "h3_handshake_failed_no_fallback"
+        );
     }
 }

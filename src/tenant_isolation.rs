@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 //! Multi-tenant configuration isolation and secret-provider helpers.
 
@@ -317,6 +317,10 @@ impl<P: SecretProvider> TenantScopedSecrets<P> {
 }
 
 #[cfg(test)]
+// Test-only env-var mutations (`std::env::set_var` / `remove_var`) need
+// `unsafe` under Rust 2024. Each call site below is a paired write +
+// cleanup inside a single test scope and is documented at the use site.
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
 

@@ -1,64 +1,86 @@
 # Examples Coverage Matrix
 
 This document maps `http-handle` capabilities to runnable examples so
-functional coverage stays explicit across code, docs, and CI.
+functional coverage stays explicit across code, docs, and CI. Every
+listed name corresponds to `examples/<name>.rs` and is registered as a
+`[[example]]` target in `Cargo.toml`.
 
-## Run Any Example
+## Run any example
+
+The frictionless path is the wrapper that auto-resolves the required
+Cargo features:
 
 ```shell
-cargo run --example <name> [--features "..."]
+./scripts/example.sh <name>           # e.g. ./scripts/example.sh enterprise
+./scripts/example.sh --list           # print every example name
+./scripts/example.sh dhat --release   # extra cargo args pass through
 ```
 
-## Core Runtime
+If you'd rather invoke `cargo` directly, every feature-gated example
+prints the right command in its own doc comment, and the README's
+`## Examples` section lists copy-paste-ready commands per row:
+
+```shell
+cargo run --example <name> [--features "<flag>"]
+```
+
+The `support.rs` helper module is shared via
+`#[path = "support.rs"] mod support;` and is not invoked directly.
+`cargo run --example all` exercises every demo in sequence.
+
+## Core (no Cargo features)
 
 | Capability | Example |
 |---|---|
-| Basic static server | `basic_server` |
-| Full server setup flow | `server_example` |
-| Builder configuration | `server_builder_example` |
-| Graceful shutdown | `graceful_shutdown_example` |
-| End-to-end walkthrough | `full_demo` |
-| Legacy compatibility flow | `lib_example_legacy` |
+| Minimal `Server::new` | `hello` |
+| `ServerBuilder` fluent configuration | `builder` |
+| `Request::from_stream` over a real TCP connection | `request` |
+| `Response::send` and `set_connection_header` | `response` |
+| `ServerError` constructors | `errors` |
+| CORS / headers / timeouts / rate-limit / cache TTL | `policies` |
+| `ThreadPool` and `ConnectionPool` resource caps | `pool` |
+| `ShutdownSignal` lifecycle and graceful drain | `shutdown` |
+| HTTP/1.1 keep-alive over a single TCP connection | `keepalive` |
+| `LanguageDetector` built-in + custom regex patterns | `language` |
 
-## HTTP Primitives
-
-| Capability | Example |
-|---|---|
-| Request parsing | `request_example` |
-| Response construction | `response_example` |
-| Error handling | `error_example` |
-
-## Performance and Operations
-
-| Capability | Example |
-|---|---|
-| Thread/connection pooling behavior | `pooling_performance_example` |
-| Server policy scenario | `scenario_server_policies` |
-| External benchmark target | `benchmark_target` |
-
-## Feature-Gated Modules
+## Per Cargo feature
 
 | Capability | Feature | Example |
 |---|---|---|
-| Async runtime helper | `async` | `feature_async_runtime` |
-| Async server path | `async` | `feature_async_server` |
-| Runtime language detection | `default` | `feature_language_detection` |
-| Batch processing | `batch` | `feature_batch_processing` |
-| Streaming chunks | `streaming` | `feature_streaming_chunks` |
-| Optimized lookups | `optimized` | `feature_optimized_lookups` |
-| Observability setup | `observability` | `feature_observability` |
-| HTTP/2 server path | `http2` | `feature_http2_server` |
-| HTTP/3 profile policy | `http3-profile` | `feature_http3_profile` |
-| Enterprise authorization | `enterprise` | `feature_enterprise_authorization` |
-| Distributed rate limiting | `distributed-rate-limit` | `feature_distributed_rate_limit` |
-| Multi-tenant isolation | `multi-tenant` | `feature_tenant_isolation` |
-| Runtime auto-tune profile | `autotune` | `feature_runtime_autotune` |
+| Async runtime helper + `start_async` | `async` | `async` |
+| Concurrent batch reads | `batch` | `batch` |
+| `ChunkStream` chunked file iteration | `streaming` | `streaming` |
+| Const MIME table + bitset language detection | `optimized` | `optimized` |
+| Structured tracing via `tracing-subscriber` | `observability` | `observability` |
+| HTTP/2 (h2c) server roundtrip | `http2` | `http2` |
+| HTTP/3 ALPN routing + fallback chain | `http3-profile` | `http3` |
+| `start_high_perf` with `PerfLimits` | `high-perf` | `perf` |
+| `start_high_perf_multi_thread` | `high-perf-multi-thread` | `multi` |
+| Host-profile auto-tuning | `autotune` | `autotune` |
+| Distributed rate limiter + in-memory backend | `distributed-rate-limit` | `ratelimit` |
+| Per-tenant config + scoped secrets | `multi-tenant` | `tenant` |
+| TLS / mTLS policy primitives | `enterprise` | `tls` |
+| API-key + JWT verifiers | `enterprise` | `auth` |
+| TOML config + hot-reload watcher | `enterprise` | `config` |
+| RBAC adapter + `enforce_http_request_authorization` | `enterprise` | `enterprise` |
 
-## Validation Commands
+## Tooling / runners
+
+| Capability | Example |
+|---|---|
+| Unified runner across enabled features | `full` |
+| Sequential runner that drives every other example | `all` |
+| Bombardier benchmark target (env-driven mode) | `bench` |
+| dhat heap-profile harness | `dhat` |
+
+## Validation commands
 
 ```shell
-# compile all examples with all optional features enabled
+# compile every example with all optional features enabled
 cargo check --all-features --examples
+
+# run every example sequentially
+cargo run --example all
 
 # run all tests and doctests
 cargo test --all-features

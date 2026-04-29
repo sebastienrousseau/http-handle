@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 // src/server.rs
 
@@ -14,6 +14,7 @@
 use crate::error::ServerError;
 use crate::request::Request;
 use crate::response::Response;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -21,8 +22,9 @@ use std::io;
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex, Once, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -30,9 +32,21 @@ static SHUTDOWN_SIGNAL_SLOT: OnceLock<
     Mutex<Option<Arc<ShutdownSignal>>>,
 > = OnceLock::new();
 static SIGNAL_HANDLER_INSTALL: Once = Once::new();
-static RATE_LIMIT_STATE: OnceLock<
-    Mutex<HashMap<IpAddr, Vec<Instant>>>,
-> = OnceLock::new();
+/// Number of shards in the rate-limit table. Picked to be a power of two so
+/// the modulo collapses to a bitmask, and large enough that contention from
+/// concurrent requests across distinct IPs almost always lands on different
+/// shards.
+const RATE_LIMIT_SHARDS: usize = 16;
+type RateLimitShard = Mutex<HashMap<IpAddr, Vec<Instant>>>;
+type RateLimitTable = [RateLimitShard; RATE_LIMIT_SHARDS];
+static RATE_LIMIT_STATE: OnceLock<RateLimitTable> = OnceLock::new();
+
+/// Maximum entries kept in the ETag cache. The key is `(len, mtime_secs)`
+/// — collisions across distinct files with identical metadata are
+/// harmless because the etag string itself is identical by construction.
+const ETAG_CACHE_MAX: usize = 256;
+type EtagCache = RwLock<HashMap<(u64, u64), Arc<str>>>;
+static ETAG_CACHE: OnceLock<EtagCache> = OnceLock::new();
 static METRIC_REQUESTS_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_4XX: AtomicUsize = AtomicUsize::new(0);
 static METRIC_RESPONSES_5XX: AtomicUsize = AtomicUsize::new(0);
@@ -67,6 +81,11 @@ static METRIC_RATE_LIMITED: AtomicUsize = AtomicUsize::new(0);
 pub struct Server {
     address: String,
     document_root: PathBuf,
+    /// Canonicalized `document_root` cached at build time. Skipped from
+    /// serde so the wire shape of `Server` is unchanged; recomputed on
+    /// deserialize via `Default`.
+    #[serde(skip, default)]
+    canonical_document_root: PathBuf,
     cors_enabled: Option<bool>,
     cors_origins: Option<Vec<String>>,
     custom_headers: Option<HashMap<String, String>>,
@@ -74,6 +93,12 @@ pub struct Server {
     connection_timeout: Option<Duration>,
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
+    /// Maximum file size, in bytes, that the in-memory file-serve path
+    /// will fully buffer. Files exceeding this cap return 503; this
+    /// guards against the OOM vector where a 1 GB file load drives RSS
+    /// to N × file_size on N concurrent requests. None falls back to
+    /// `DEFAULT_MAX_BUFFERED_BODY_BYTES` (64 MiB).
+    max_buffered_body_bytes: Option<u64>,
 }
 
 /// Builds a [`Server`] with optional policy and timeout configuration.
@@ -116,6 +141,7 @@ pub struct ServerBuilder {
     connection_timeout: Option<Duration>,
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: Option<u64>,
 }
 
 impl ServerBuilder {
@@ -247,6 +273,32 @@ impl ServerBuilder {
         self
     }
 
+    /// Sets the maximum file size (in bytes) the in-memory
+    /// file-serve path will buffer before returning 503.
+    ///
+    /// Defaults to [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] (64 MiB) when
+    /// unset. Lower this on memory-constrained hosts; raise it for
+    /// larger asset bundles where the operator has measured RSS
+    /// headroom under expected concurrent load.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use http_handle::Server;
+    ///
+    /// let server = Server::builder()
+    ///     .address("127.0.0.1:0")
+    ///     .document_root(".")
+    ///     .max_buffered_body_bytes(8 * 1024 * 1024) // 8 MiB cap
+    ///     .build()
+    ///     .expect("server");
+    /// assert_eq!(server.max_buffered_body_bytes(), 8 * 1024 * 1024);
+    /// ```
+    pub fn max_buffered_body_bytes(mut self, bytes: u64) -> Self {
+        self.max_buffered_body_bytes = Some(bytes);
+        self
+    }
+
     /// Finalizes builder state into a [`Server`].
     ///
     /// # Examples
@@ -275,10 +327,15 @@ impl ServerBuilder {
         let address = self.address.ok_or("Address is required")?;
         let document_root =
             self.document_root.ok_or("Document root is required")?;
+        // Canonicalize once at build time so the request hot path no longer
+        // issues two fs::canonicalize syscalls per request.
+        let canonical_document_root = fs::canonicalize(&document_root)
+            .unwrap_or_else(|_| document_root.clone());
 
         Ok(Server {
             address,
             document_root,
+            canonical_document_root,
             cors_enabled: self.cors_enabled,
             cors_origins: self.cors_origins,
             custom_headers: self.custom_headers,
@@ -286,6 +343,7 @@ impl ServerBuilder {
             connection_timeout: self.connection_timeout,
             rate_limit_per_minute: self.rate_limit_per_minute,
             static_cache_ttl_secs: self.static_cache_ttl_secs,
+            max_buffered_body_bytes: self.max_buffered_body_bytes,
         })
     }
 }
@@ -415,13 +473,16 @@ impl ThreadPool {
     pub fn new(size: usize) -> ThreadPool {
         assert!(size > 0);
 
-        let (sender, receiver) = mpsc::channel();
-        let receiver = Arc::new(Mutex::new(receiver));
+        // crossbeam-channel's MPMC receiver is Clone + lock-free, so each
+        // worker owns its own handle to the shared queue instead of
+        // contending on Arc<Mutex<Receiver>>. Previous design serialized
+        // every `recv()` through one mutex regardless of worker count.
+        let (sender, receiver) = unbounded();
 
         let mut workers = Vec::with_capacity(size);
 
         for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)));
+            workers.push(Worker::new(id, receiver.clone()));
         }
 
         // Return configured thread_pool instance
@@ -444,8 +505,10 @@ impl ThreadPool {
 impl Drop for ThreadPool {
     fn drop(&mut self) {
         // Close the job channel first so workers exit their recv() loop.
-        let (replacement_sender, _replacement_receiver) =
-            mpsc::channel();
+        // Replacing the sender drops the original; when the last Sender
+        // goes out of scope the channel disconnects and every cloned
+        // Receiver returns Err from recv().
+        let (replacement_sender, _replacement_receiver) = unbounded();
         let old_sender =
             std::mem::replace(&mut self.sender, replacement_sender);
         drop(old_sender);
@@ -461,24 +524,12 @@ impl Drop for ThreadPool {
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Receiver<Job>) -> Worker {
         let thread = thread::spawn(move || {
-            loop {
-                let job = receiver.lock().unwrap().recv();
-
-                match job {
-                    Ok(job) => {
-                        job();
-                    }
-                    Err(_) => {
-                        println!(
-                            "Worker {} disconnected; shutting down.",
-                            id
-                        );
-                        break;
-                    }
-                }
+            while let Ok(job) = receiver.recv() {
+                job();
             }
+            println!("Worker {id} disconnected; shutting down.");
         });
 
         Worker {
@@ -568,9 +619,13 @@ impl Server {
     /// This function does not panic.
     #[doc(alias = "constructor")]
     pub fn new(address: &str, document_root: &str) -> Self {
+        let document_root = PathBuf::from(document_root);
+        let canonical_document_root = fs::canonicalize(&document_root)
+            .unwrap_or_else(|_| document_root.clone());
         Server {
             address: address.to_string(),
-            document_root: PathBuf::from(document_root),
+            document_root,
+            canonical_document_root,
             cors_enabled: None,
             cors_origins: None,
             custom_headers: None,
@@ -578,6 +633,7 @@ impl Server {
             connection_timeout: None,
             rate_limit_per_minute: None,
             static_cache_ttl_secs: None,
+            max_buffered_body_bytes: None,
         }
     }
 
@@ -731,6 +787,15 @@ impl Server {
         // Set a short timeout on the listener to allow checking shutdown signal
         listener.set_nonblocking(true)?;
 
+        // Adaptive backoff between non-blocking accept polls. Starts at
+        // 100 µs so a connection arriving while idle waits at most that
+        // long before we accept it; doubles up to a 5 ms cap so a truly
+        // idle server polls ~200×/sec (negligible CPU) and shutdown
+        // detection latency is bounded at 5 ms instead of 100 ms.
+        const MIN_IDLE_SLEEP: Duration = Duration::from_micros(100);
+        const MAX_IDLE_SLEEP: Duration = Duration::from_millis(5);
+        let mut idle_sleep = MIN_IDLE_SLEEP;
+
         loop {
             // Check if shutdown was requested
             if shutdown.is_shutdown_requested() {
@@ -741,14 +806,17 @@ impl Server {
             }
 
             match listener.accept() {
-                Ok((stream, _addr)) => Self::run_tracked_accept(
-                    stream,
-                    self.clone(),
-                    shutdown.clone(),
-                ),
+                Ok((stream, _addr)) => {
+                    idle_sleep = MIN_IDLE_SLEEP;
+                    Self::run_tracked_accept(
+                        stream,
+                        self.clone(),
+                        shutdown.clone(),
+                    );
+                }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // No connection waiting, sleep briefly and continue
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(idle_sleep);
+                    idle_sleep = (idle_sleep * 2).min(MAX_IDLE_SLEEP);
                 }
                 Err(e) => Self::log_listener_error(e),
             }
@@ -1013,6 +1081,29 @@ impl Server {
     pub fn document_root(&self) -> &PathBuf {
         &self.document_root
     }
+
+    /// Returns the canonical document root, cached at build time.
+    ///
+    /// Pre-canonicalised so the request hot path can do a prefix check
+    /// without issuing `fs::canonicalize` per request. Falls back to
+    /// `document_root` when canonicalisation produced an empty path
+    /// (e.g. the path was constructed via `Default` and never built).
+    pub fn canonical_document_root(&self) -> &Path {
+        if self.canonical_document_root.as_os_str().is_empty() {
+            &self.document_root
+        } else {
+            &self.canonical_document_root
+        }
+    }
+
+    /// Returns the configured maximum file size, in bytes, that the
+    /// in-memory file-serve path will buffer. Falls back to
+    /// [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] when the builder didn't
+    /// override it.
+    pub fn max_buffered_body_bytes(&self) -> u64 {
+        self.max_buffered_body_bytes
+            .unwrap_or(DEFAULT_MAX_BUFFERED_BODY_BYTES)
+    }
 }
 
 /// Sends a 503 Service Unavailable response when connection pool is exhausted.
@@ -1043,12 +1134,87 @@ fn send_service_unavailable(mut stream: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
+/// Maximum number of HTTP/1.1 requests served on a single keep-alive
+/// connection before the server forces a close. Bounds resource use
+/// per client and prevents a single connection from monopolising a
+/// worker indefinitely.
+pub(crate) const MAX_KEEPALIVE_REQUESTS: usize = 100;
+
+/// Idle timeout applied to the read side of a kept-alive connection
+/// while waiting for the next request. Smaller than the per-request
+/// timeout so an idle client is reaped promptly without affecting the
+/// time budget for a request that's actually in flight. Industry
+/// defaults sit at 5–15 s; 5 s is a reasonable middle ground.
+pub(crate) const KEEPALIVE_IDLE_TIMEOUT: Duration =
+    Duration::from_secs(5);
+
+/// Default ceiling for the in-memory `serve_file_response` path when
+/// `Server::max_buffered_body_bytes` isn't set explicitly. Files
+/// larger than this cap are rejected with `503 Service Unavailable`
+/// rather than allowed to drive the server's RSS to N × file_size on
+/// N concurrent requests.
+///
+/// Truly large files need a streaming response path that writes
+/// directly to the wire instead of materialising a `Vec<u8>` body.
+/// `streaming::ChunkStream` provides the building block; wiring it
+/// into `Response` requires a `ResponseBody` enum which is a public
+/// API change parked for v0.1.
+///
+/// 64 MiB covers the vast majority of static-asset workloads (HTML,
+/// JS bundles, images, small video previews). Override per-deployment
+/// via [`ServerBuilder::max_buffered_body_bytes`].
+pub const DEFAULT_MAX_BUFFERED_BODY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Connection lifecycle decision derived from the request and HTTP
+/// version per RFC 7230 §6.3:
+///
+/// * HTTP/1.1: keep-alive by default; close on explicit `Connection: close`.
+/// * HTTP/1.0: close by default; keep-alive only on explicit
+///   `Connection: keep-alive`.
+///
+/// Errors and missing-parse cases always close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConnectionPolicy {
+    KeepAlive,
+    Close,
+}
+
+impl ConnectionPolicy {
+    pub(crate) fn header_value(self) -> &'static str {
+        match self {
+            ConnectionPolicy::KeepAlive => "keep-alive",
+            ConnectionPolicy::Close => "close",
+        }
+    }
+
+    pub(crate) fn from_request(request: &Request) -> Self {
+        let connection_header = request
+            .header("connection")
+            .map(|h| h.trim().to_ascii_lowercase());
+        match request.version() {
+            "HTTP/1.1" => match connection_header.as_deref() {
+                Some("close") => ConnectionPolicy::Close,
+                _ => ConnectionPolicy::KeepAlive,
+            },
+            _ => match connection_header.as_deref() {
+                Some("keep-alive") => ConnectionPolicy::KeepAlive,
+                _ => ConnectionPolicy::Close,
+            },
+        }
+    }
+}
+
 /// Handles a single client connection.
+///
+/// Implements HTTP/1.1 persistent connections (keep-alive) per RFC 7230:
+/// the loop reads requests on the same TCP stream until the client (or
+/// the server's response policy) signals close, an idle/read timeout
+/// fires, or [`MAX_KEEPALIVE_REQUESTS`] is reached.
 ///
 /// # Arguments
 ///
 /// * `stream` - A `TcpStream` representing the client connection.
-/// * `document_root` - A `PathBuf` representing the server's document root.
+/// * `server` - The configured `Server`, used for policy and document root.
 ///
 /// # Returns
 ///
@@ -1057,14 +1223,39 @@ pub(crate) fn handle_connection(
     mut stream: TcpStream,
     server: &Server,
 ) -> Result<(), ServerError> {
+    // Disable Nagle so small responses ship immediately instead of
+    // stalling behind delayed-ACK on the client side.
+    let _ = stream.set_nodelay(true);
     let timeout =
         server.request_timeout.unwrap_or(Duration::from_secs(30));
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
-    let response = build_response_for_stream(server, &stream, peer_ip);
-    response.send(&mut stream)?;
+
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        if i > 0 {
+            // Tighten the read side for subsequent requests on a
+            // persistent connection. The first request is free to use
+            // the configured request_timeout; an idle client between
+            // requests is reaped on KEEPALIVE_IDLE_TIMEOUT.
+            stream.set_read_timeout(Some(KEEPALIVE_IDLE_TIMEOUT))?;
+        }
+        let (mut response, policy) =
+            build_response_for_stream(server, &stream, peer_ip);
+        // Authoritative Connection header on the response. Overwrites
+        // anything `apply_response_policies` may have set; the policy
+        // decision sits closer to the wire than per-handler choices.
+        response.set_connection_header(policy.header_value());
+
+        if response.send(&mut stream).is_err() {
+            // Peer hung up mid-write — the keep-alive loop is over.
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -1089,6 +1280,8 @@ fn handle_connection_tracked(
 ) -> Result<(), ServerError> {
     // Ensure per-connection reads are blocking even if the listener is non-blocking.
     stream.set_nonblocking(false)?;
+    // Disable Nagle — small responses should not wait for delayed ACKs.
+    let _ = stream.set_nodelay(true);
 
     // Set a reasonable timeout for connection handling
     let timeout =
@@ -1097,8 +1290,21 @@ fn handle_connection_tracked(
     stream.set_write_timeout(Some(timeout))?;
 
     let peer_ip = stream.peer_addr().ok().map(|addr| addr.ip());
-    let response = build_response_for_stream(server, &stream, peer_ip);
-    response.send(&mut stream)?;
+
+    for i in 0..MAX_KEEPALIVE_REQUESTS {
+        if i > 0 {
+            stream.set_read_timeout(Some(KEEPALIVE_IDLE_TIMEOUT))?;
+        }
+        let (mut response, policy) =
+            build_response_for_stream(server, &stream, peer_ip);
+        response.set_connection_header(policy.header_value());
+        if response.send(&mut stream).is_err() {
+            return Ok(());
+        }
+        if policy == ConnectionPolicy::Close {
+            return Ok(());
+        }
+    }
     Ok(())
 }
 
@@ -1106,25 +1312,36 @@ fn build_response_for_stream(
     server: &Server,
     stream: &TcpStream,
     peer_ip: Option<IpAddr>,
-) -> Response {
+) -> (Response, ConnectionPolicy) {
     match Request::from_stream(stream) {
         Ok(request) => {
+            // Capture the keep-alive decision before consuming the
+            // request: rate-limited or metrics responses still honour
+            // the client's stated preference. Errors below override
+            // to Close because the parsing path was destabilised.
+            let policy = ConnectionPolicy::from_request(&request);
             if request.path() == "/metrics" && request.method() == "GET"
             {
-                return generate_metrics_response();
+                return (generate_metrics_response(), policy);
             }
             if let Some(ip) = peer_ip
                 && is_rate_limited(server, ip)
             {
                 let _ =
                     METRIC_RATE_LIMITED.fetch_add(1, Ordering::Relaxed);
-                return generate_too_many_requests_response();
+                return (generate_too_many_requests_response(), policy);
             }
-            build_response_for_request_with_metrics(server, &request)
+            (
+                build_response_for_request_with_metrics(
+                    server, &request,
+                ),
+                policy,
+            )
         }
-        Err(error) => {
-            response_from_error(&error, &server.document_root)
-        }
+        Err(error) => (
+            response_from_error(&error, &server.document_root),
+            ConnectionPolicy::Close,
+        ),
     }
 }
 
@@ -1150,7 +1367,9 @@ pub(crate) fn build_response_for_request(
         "GET" => generate_response_with_cache(
             request,
             &server.document_root,
+            &server.canonical_document_root,
             server.static_cache_ttl_secs,
+            server.max_buffered_body_bytes(),
         ),
         "HEAD" => {
             generate_head_response(request, &server.document_root)
@@ -1201,14 +1420,30 @@ fn generate_too_many_requests_response() -> Response {
     response
 }
 
+fn rate_limit_shard_index(ip: IpAddr) -> usize {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    ip.hash(&mut h);
+    (h.finish() as usize) & (RATE_LIMIT_SHARDS - 1)
+}
+
+fn rate_limit_table() -> &'static RateLimitTable {
+    RATE_LIMIT_STATE.get_or_init(|| {
+        std::array::from_fn(|_| Mutex::new(HashMap::new()))
+    })
+}
+
 fn is_rate_limited(server: &Server, ip: IpAddr) -> bool {
     let Some(limit) = server.rate_limit_per_minute else {
         return false;
     };
     let now = Instant::now();
-    let state =
-        RATE_LIMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match state.lock() {
+    // Sharded by IP hash so concurrent requests from distinct clients
+    // almost always land on different shards. Cuts effective contention
+    // by a factor of RATE_LIMIT_SHARDS without introducing a dependency.
+    let shard = &rate_limit_table()[rate_limit_shard_index(ip)];
+    let mut guard = match shard.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
@@ -1237,16 +1472,25 @@ fn generate_response(
     request: &Request,
     document_root: &Path,
 ) -> Result<Response, ServerError> {
-    generate_response_with_cache(request, document_root, None)
+    // Fallback entry point used only by tests: canonicalize lazily.
+    let canonical = fs::canonicalize(document_root)
+        .unwrap_or_else(|_| document_root.to_path_buf());
+    generate_response_with_cache(
+        request,
+        document_root,
+        &canonical,
+        None,
+        DEFAULT_MAX_BUFFERED_BODY_BYTES,
+    )
 }
 
 fn generate_response_with_cache(
     request: &Request,
     document_root: &Path,
+    canonical_root: &Path,
     cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
-    let canonical_root = fs::canonicalize(document_root)
-        .unwrap_or_else(|_| document_root.to_path_buf());
     let mut path = PathBuf::from(document_root);
     let request_path = request.path().trim_start_matches('/');
 
@@ -1264,19 +1508,29 @@ fn generate_response_with_cache(
     }
 
     let within_root = fs::canonicalize(&path)
-        .map(|candidate| candidate.starts_with(&canonical_root))
+        .map(|candidate| candidate.starts_with(canonical_root))
         .unwrap_or_else(|_| path.starts_with(document_root));
     if !within_root {
         return Err(ServerError::forbidden("Access denied"));
     }
 
     if path.is_file() {
-        serve_file_response(request, &path, cache_ttl_secs)
+        serve_file_response(
+            request,
+            &path,
+            cache_ttl_secs,
+            max_buffered_body_bytes,
+        )
     } else if path.is_dir() {
         // If it's a directory, try to serve index.html from that directory
         path.push("index.html");
         if path.is_file() {
-            serve_file_response(request, &path, cache_ttl_secs)
+            serve_file_response(
+                request,
+                &path,
+                cache_ttl_secs,
+                max_buffered_body_bytes,
+            )
         } else {
             generate_404_response(document_root)
         }
@@ -1289,6 +1543,7 @@ fn serve_file_response(
     request: &Request,
     path: &Path,
     cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
     let mut serving_path = path.to_path_buf();
     let mut content_encoding: Option<&'static str> = None;
@@ -1321,12 +1576,28 @@ fn serve_file_response(
         }
     }
 
+    // Pre-flight metadata check: refuse to buffer files larger than the
+    // operator's configured cap. This prevents a single client from
+    // driving server RSS to file_size; future streaming work will lift
+    // the cap by writing directly to the wire instead of constructing
+    // a Vec<u8>.
+    let serving_metadata =
+        fs::metadata(&serving_path).map_err(ServerError::from)?;
+    if serving_metadata.len() > max_buffered_body_bytes {
+        return Err(ServerError::Custom(format!(
+            "file exceeds in-memory serve cap ({} > {} bytes); \
+             override via ServerBuilder::max_buffered_body_bytes or \
+             wait for v0.1 streaming",
+            serving_metadata.len(),
+            max_buffered_body_bytes
+        )));
+    }
     let contents = fs::read(&serving_path)?;
     let metadata = fs::metadata(path)?;
     let etag = compute_etag(&metadata);
     if request
         .header("if-none-match")
-        .is_some_and(|candidate| candidate == etag)
+        .is_some_and(|candidate| candidate == &*etag)
     {
         let mut response =
             Response::new(304, "NOT MODIFIED", Vec::new());
@@ -1365,13 +1636,50 @@ fn serve_file_response(
     Ok(response)
 }
 
-fn compute_etag(metadata: &fs::Metadata) -> String {
+fn etag_cache() -> &'static EtagCache {
+    ETAG_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn compute_etag(metadata: &fs::Metadata) -> Arc<str> {
     let modified = metadata
         .modified()
         .ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map_or(0_u64, |duration| duration.as_secs());
-    format!("W/\"{:x}-{:x}\"", metadata.len(), modified)
+    let len = metadata.len();
+    let key = (len, modified);
+
+    let cache = etag_cache();
+    if let Ok(read) = cache.read()
+        && let Some(etag) = read.get(&key)
+    {
+        return Arc::clone(etag);
+    }
+
+    // Miss: format the etag and insert. The Arc<str> is shared between
+    // the cache and the caller, so subsequent hits return a refcount
+    // bump instead of a fresh String allocation.
+    let etag: Arc<str> =
+        Arc::from(format!("W/\"{:x}-{:x}\"", len, modified));
+
+    if let Ok(mut write) = cache.write() {
+        if write.len() >= ETAG_CACHE_MAX {
+            // Crude eviction: drop the first quarter of entries when we
+            // exceed the cap. Avoids unbounded growth without depending
+            // on an LRU crate. Workloads with high path churn that fill
+            // the cache get a periodic pause; typical static-content
+            // serving stays inside the cap and never evicts.
+            let drop_count = ETAG_CACHE_MAX / 4;
+            let to_remove: Vec<_> =
+                write.keys().take(drop_count).copied().collect();
+            for k in to_remove {
+                let _ = write.remove(&k);
+            }
+        }
+        let _ = write.insert(key, Arc::clone(&etag));
+    }
+
+    etag
 }
 
 fn parse_range_header(
@@ -1752,7 +2060,27 @@ mod tests {
         });
 
         let mut client = TcpStream::connect(addr).expect("connect");
-        client.write_all(request).expect("write");
+        // Inject `Connection: close` if the test request didn't already
+        // include one. With HTTP/1.1 keep-alive on by default the
+        // server otherwise sits in the idle loop until KEEPALIVE_IDLE_TIMEOUT
+        // fires, dragging single-shot integration tests into multi-second
+        // territory. Tests that explicitly want keep-alive can include
+        // their own Connection header.
+        let request_text = std::str::from_utf8(request).unwrap_or("");
+        if request_text.to_ascii_lowercase().contains("connection:") {
+            client.write_all(request).expect("write");
+        } else {
+            // Splice "Connection: close\r\n" before the trailing CRLF
+            // that ends the headers section.
+            let with_close =
+                if let Some(idx) = request_text.rfind("\r\n\r\n") {
+                    let (head, tail) = request_text.split_at(idx);
+                    format!("{head}\r\nConnection: close{tail}")
+                } else {
+                    request_text.to_string()
+                };
+            client.write_all(with_close.as_bytes()).expect("write");
+        }
         let mut response = String::new();
         let _ = client.read_to_string(&mut response).expect("read");
         handle.join().expect("join");
@@ -1911,7 +2239,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let root_response =
@@ -1929,7 +2257,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let file_response =
@@ -1947,7 +2275,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/subdir/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let subdir_response =
@@ -1963,7 +2291,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/nonexistent.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let not_found_response =
@@ -1982,7 +2310,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/../outside.html".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let traversal_response =
@@ -2293,7 +2621,7 @@ mod tests {
             method: "OPTIONS".to_string(),
             path: "/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response = apply_response_policies(
             Response::new(200, "OK", Vec::new()),
@@ -2442,7 +2770,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/empty-dir/".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
 
         let response = generate_response(&request, temp_dir.path())
@@ -2529,9 +2857,8 @@ mod tests {
         let temp_dir = setup_test_directory();
         let root = temp_dir.path();
 
-        let mut headers = HashMap::new();
-        let _ = headers
-            .insert("range".to_string(), "bytes=0-4".to_string());
+        let headers =
+            vec![("range".to_string(), "bytes=0-4".to_string())];
         let range_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2549,8 +2876,7 @@ mod tests {
             .map(|(_, value)| value.clone())
             .expect("etag");
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert("if-none-match".to_string(), etag);
+        let headers = vec![("if-none-match".to_string(), etag)];
         let conditional_request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2702,7 +3028,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/assets/app-abcdef12.js".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: HashMap::new(),
+            headers: Vec::new(),
         };
         let response = apply_response_policies(
             Response::new(200, "OK", b"ok".to_vec()),
@@ -2721,11 +3047,10 @@ mod tests {
         let file = root.path().join("index.html.zst");
         fs::write(&file, b"zstd-data").expect("write");
 
-        let mut headers = HashMap::new();
-        let _ = headers.insert(
+        let headers = vec![(
             "accept-encoding".to_string(),
             "zstd,gzip".to_string(),
-        );
+        )];
         let request = Request {
             method: "GET".to_string(),
             path: "/index.html".to_string(),
@@ -2733,13 +3058,567 @@ mod tests {
             headers,
         };
 
-        let response =
-            generate_response_with_cache(&request, root.path(), None)
-                .expect("response");
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        )
+        .expect("response");
         assert!(response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-encoding")
                 && value.eq_ignore_ascii_case("zstd")
         }));
         assert_eq!(response.body, b"zstd-data");
+    }
+
+    #[test]
+    fn test_brotli_precompressed_asset_is_served() {
+        let root = setup_test_directory();
+        fs::write(root.path().join("index.html.br"), b"brotli-encoded")
+            .expect("write br");
+
+        let headers = vec![(
+            "accept-encoding".to_string(),
+            "br, gzip".to_string(),
+        )];
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        )
+        .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-encoding")
+                && value.eq_ignore_ascii_case("br")
+        }));
+        assert_eq!(response.body, b"brotli-encoded");
+    }
+
+    #[test]
+    fn test_gzip_precompressed_asset_is_served() {
+        let root = setup_test_directory();
+        fs::write(root.path().join("index.html.gz"), b"gzdata")
+            .expect("write gz");
+
+        let headers =
+            vec![("accept-encoding".to_string(), "gzip".to_string())];
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        };
+
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            None,
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        )
+        .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-encoding")
+                && value.eq_ignore_ascii_case("gzip")
+        }));
+        assert_eq!(response.body, b"gzdata");
+    }
+
+    #[test]
+    fn test_serve_file_response_applies_cache_ttl() {
+        let root = setup_test_directory();
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+
+        let response = generate_response_with_cache(
+            &request,
+            root.path(),
+            &fs::canonicalize(root.path()).expect("canonicalize"),
+            Some(600),
+            DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        )
+        .expect("response");
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("cache-control")
+                && value.contains("max-age=600")
+        }));
+    }
+
+    #[test]
+    fn test_parse_range_header_covers_all_branches() {
+        // Missing header / wrong prefix / malformed.
+        assert!(parse_range_header(None, 100).is_none());
+        assert!(parse_range_header(Some("items=0-1"), 100).is_none());
+        assert!(
+            parse_range_header(Some("bytes=no-dash"), 100).is_none()
+        );
+        // Both ends empty.
+        assert!(parse_range_header(Some("bytes=-"), 100).is_none());
+        // Suffix form: last N bytes.
+        assert_eq!(
+            parse_range_header(Some("bytes=-10"), 100),
+            Some((90, 99))
+        );
+        // Suffix longer than file or zero: rejected.
+        assert!(parse_range_header(Some("bytes=-0"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=-500"), 100).is_none());
+        // Open-ended "start-" form uses total-1 as end.
+        assert_eq!(
+            parse_range_header(Some("bytes=10-"), 100),
+            Some((10, 99))
+        );
+        // Open-ended on empty body falls off checked_sub.
+        assert!(parse_range_header(Some("bytes=0-"), 0).is_none());
+        // Explicit start > end is rejected.
+        assert!(parse_range_header(Some("bytes=50-10"), 100).is_none());
+        // End beyond total is rejected.
+        assert!(
+            parse_range_header(Some("bytes=0-9999"), 100).is_none()
+        );
+        // Well-formed closed range.
+        assert_eq!(
+            parse_range_header(Some("bytes=0-9"), 100),
+            Some((0, 9))
+        );
+        // Non-numeric parts.
+        assert!(parse_range_header(Some("bytes=abc-9"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=0-abc"), 100).is_none());
+        assert!(parse_range_header(Some("bytes=-abc"), 100).is_none());
+    }
+
+    #[test]
+    fn test_non_immutable_cache_control_policy_uses_ttl() {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .static_cache_ttl_secs(90)
+            .build()
+            .expect("server");
+
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        let response = apply_response_policies(
+            Response::new(200, "OK", b"ok".to_vec()),
+            &server,
+            &request,
+        );
+        assert!(response.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("cache-control")
+                && value == "public, max-age=90"
+        }));
+    }
+
+    #[test]
+    fn test_cache_control_policy_respects_existing_header() {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .static_cache_ttl_secs(90)
+            .build()
+            .expect("server");
+
+        let mut existing = Response::new(200, "OK", b"ok".to_vec());
+        existing.add_header("Cache-Control", "no-store");
+
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/anything.txt".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        let response =
+            apply_response_policies(existing, &server, &request);
+        let header = response
+            .headers
+            .iter()
+            .find(|(name, _)| {
+                name.eq_ignore_ascii_case("cache-control")
+            })
+            .map(|(_, value)| value.clone())
+            .expect("cache-control");
+        assert_eq!(header, "no-store");
+    }
+
+    #[test]
+    fn test_is_probably_immutable_asset_path_edge_cases() {
+        assert!(is_probably_immutable_asset_path(
+            "/assets/app-abcdef12.js"
+        ));
+        // No extension → rsplit_once('.') returns None.
+        assert!(!is_probably_immutable_asset_path("/noext"));
+        // Non-hex hash suffix is rejected.
+        assert!(!is_probably_immutable_asset_path(
+            "/assets/app-zzzzzzzz.js"
+        ));
+        // Too short to be a hash.
+        assert!(!is_probably_immutable_asset_path("/assets/app-ab.js"));
+    }
+
+    #[test]
+    fn test_record_metrics_tracks_5xx_responses() {
+        let before = METRIC_RESPONSES_5XX.load(Ordering::Relaxed);
+        let response =
+            Response::new(503, "SERVICE UNAVAILABLE", b"down".to_vec());
+        record_metrics(&response);
+        let after = METRIC_RESPONSES_5XX.load(Ordering::Relaxed);
+        assert!(after > before);
+    }
+
+    #[test]
+    fn test_rate_limit_recovers_from_poisoned_mutex() {
+        // Poison only the shard that this IP would route to so the test
+        // doesn't disturb adjacent shards used by other concurrent tests.
+        let ip: IpAddr = "127.0.0.1".parse().expect("ip");
+        let shard = &rate_limit_table()[rate_limit_shard_index(ip)];
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = shard.lock().expect("lock");
+            panic!("intentional to poison");
+        });
+        assert!(shard.is_poisoned());
+
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .rate_limit_per_minute(10)
+            .build()
+            .expect("server");
+        // Must not panic even though the shard is poisoned — poisoned
+        // lock recovery branch.
+        let _ = is_rate_limited(&server, ip);
+
+        // Clear poison so subsequent tests see a healthy lock.
+        shard.clear_poison();
+    }
+
+    #[test]
+    fn test_log_connection_result_handles_error() {
+        // The Ok path is exercised by existing tests via run_*_accept_loop.
+        // Exercise the Err branch directly (eprintln) to cover the error arm.
+        Server::log_connection_result(Err(
+            ServerError::invalid_request("boom"),
+        ));
+    }
+
+    #[test]
+    fn test_start_with_shutdown_signal_reports_active_connections_on_timeout()
+     {
+        let root = setup_test_directory();
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        // 50ms grace period so wait_for_shutdown returns `false` if a
+        // connection is still in flight when we request shutdown.
+        let shutdown =
+            Arc::new(ShutdownSignal::new(Duration::from_millis(50)));
+        let (ready_tx, ready_rx) = mpsc::channel::<String>();
+        let shutdown_for_server = shutdown.clone();
+        let server_clone = server.clone();
+        let handle = thread::spawn(move || {
+            server_clone
+                .start_with_shutdown_signal_and_ready(
+                    shutdown_for_server,
+                    move |addr| {
+                        let _ = ready_tx.send(addr);
+                    },
+                )
+                .expect("server start");
+        });
+
+        let addr = ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("ready");
+
+        // Hold a long-running connection so the grace period expires before
+        // the tracked handler finishes, forcing the "active connections
+        // remaining" branch.
+        let _holder = TcpStream::connect(&addr).expect("connect");
+        thread::sleep(Duration::from_millis(20));
+        shutdown.shutdown();
+
+        handle.join().expect("join server thread");
+    }
+
+    #[test]
+    fn test_start_with_thread_pool_serves_one_connection() {
+        let root = setup_test_directory();
+        let probe = TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        let _handle = thread::spawn(move || {
+            let _ = server.start_with_thread_pool(2);
+        });
+
+        // Retry briefly until the server has bound.
+        let mut stream = None;
+        for _ in 0..50 {
+            if let Ok(s) = TcpStream::connect(addr.to_string()) {
+                stream = Some(s);
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let mut stream = stream.expect("server did not bind");
+        stream
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response).expect("read");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        // Thread continues serving but detaches with the test.
+    }
+
+    #[test]
+    fn test_start_with_pooling_serves_one_connection() {
+        let root = setup_test_directory();
+        let probe = TcpListener::bind("127.0.0.1:0").expect("probe");
+        let addr = probe.local_addr().expect("addr");
+        drop(probe);
+
+        let server = Server::builder()
+            .address(&addr.to_string())
+            .document_root(root.path().to_str().expect("path"))
+            .build()
+            .expect("server");
+
+        let _handle = thread::spawn(move || {
+            let _ = server.start_with_pooling(2, 4);
+        });
+
+        let mut stream = None;
+        for _ in 0..50 {
+            if let Ok(s) = TcpStream::connect(addr.to_string()) {
+                stream = Some(s);
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let mut stream = stream.expect("server did not bind");
+        stream
+            .write_all(
+                b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            )
+            .expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response).expect("read");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+    }
+
+    // ── Coverage fillers ────────────────────────────────────────────
+    // The tests below exist to push individual files past the 98 %
+    // line-coverage threshold. They are deliberately small and
+    // targeted: each names the lines or branch it covers in a comment
+    // so future churn keeps the coverage explanation co-located with
+    // the test.
+
+    /// Covers `ServerBuilder::disable_cors`.
+    #[test]
+    fn test_server_builder_disable_cors_setter() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .enable_cors()
+            .disable_cors()
+            .build()
+            .expect("server");
+        assert_eq!(server.cors_enabled(), Some(false));
+    }
+
+    /// Covers `ServerBuilder::max_buffered_body_bytes` and the matching
+    /// `Server::max_buffered_body_bytes` getter override path.
+    #[test]
+    fn test_server_builder_max_buffered_body_bytes_override() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .max_buffered_body_bytes(1_000_000)
+            .build()
+            .expect("server");
+        assert_eq!(server.max_buffered_body_bytes(), 1_000_000);
+    }
+
+    /// Covers `Server::max_buffered_body_bytes` default-fallback path.
+    #[test]
+    fn test_server_max_buffered_body_bytes_default_fallback() {
+        let server = Server::builder()
+            .address("127.0.0.1:0")
+            .document_root(".")
+            .build()
+            .expect("server");
+        assert_eq!(
+            server.max_buffered_body_bytes(),
+            DEFAULT_MAX_BUFFERED_BODY_BYTES
+        );
+    }
+
+    /// Covers `ShutdownSignal::default`.
+    #[test]
+    fn test_shutdown_signal_default_constructor() {
+        let signal = ShutdownSignal::default();
+        assert_eq!(signal.shutdown_timeout, Duration::from_secs(30));
+        assert!(!signal.is_shutdown_requested());
+    }
+
+    /// Covers the `> max_buffered_body_bytes` body-cap error branch in
+    /// `serve_file_response`. Builds a tiny cap (1 byte) so any non-empty
+    /// file trips the rejection.
+    #[test]
+    fn test_serve_file_response_rejects_oversize_body() {
+        let root = setup_test_directory();
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        let canonical =
+            fs::canonicalize(root.path()).expect("canonicalize");
+        let err = generate_response_with_cache(
+            &request,
+            root.path(),
+            &canonical,
+            None,
+            1, // 1-byte cap; the test fixture writes a multi-byte file
+        )
+        .expect_err("oversized file must be rejected");
+        assert!(
+            err.to_string().contains("exceeds in-memory serve cap"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Covers the etag cache eviction path (drop_count loop) by inserting
+    /// more than ETAG_CACHE_MAX synthetic entries directly into the
+    /// global cache and then forcing one more `compute_etag` call.
+    #[test]
+    fn test_etag_cache_evicts_when_full() {
+        let cache = etag_cache();
+        // Pre-fill past the cap with synthetic entries.
+        if let Ok(mut write) = cache.write() {
+            for i in 0..(ETAG_CACHE_MAX + 1) as u64 {
+                let _ = write.insert(
+                    (i, i),
+                    Arc::<str>::from(format!("W/\"{i:x}-{i:x}\"")),
+                );
+            }
+        }
+        // Sanity: cache is at-or-above the cap.
+        let len_before =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        assert!(len_before >= ETAG_CACHE_MAX);
+
+        // Trigger a real compute_etag — this hits the eviction branch
+        // because the cache is full and the new key (1, 0) isn't a
+        // pre-seeded entry.
+        let temp = std::env::temp_dir();
+        let metadata = fs::metadata(&temp).expect("metadata");
+        let _ = compute_etag(&metadata);
+
+        let len_after =
+            cache.read().map(|r| r.len()).unwrap_or_default();
+        // Eviction dropped a quarter, so the cache must be smaller
+        // than the worst-case pre-fill state.
+        assert!(
+            len_after <= ETAG_CACHE_MAX,
+            "cache len {len_after} exceeds cap {ETAG_CACHE_MAX}"
+        );
+    }
+
+    /// Covers the HTTP/1.0 + explicit `Connection: keep-alive` arm and
+    /// the HTTP/1.0-without-header default-close arm of
+    /// [`ConnectionPolicy::from_request`]. The HTTP/1.1 arms are
+    /// already exercised end-to-end by the keep-alive integration
+    /// tests; these two arms only fire on legacy HTTP/1.0 traffic and
+    /// would otherwise stay uncovered.
+    #[test]
+    fn connection_policy_handles_http_1_0_explicit_keepalive_and_default_close()
+     {
+        let keepalive = Request {
+            method: "GET".into(),
+            path: "/".into(),
+            version: "HTTP/1.0".into(),
+            headers: vec![("connection".into(), "keep-alive".into())],
+        };
+        assert_eq!(
+            ConnectionPolicy::from_request(&keepalive),
+            ConnectionPolicy::KeepAlive
+        );
+
+        let bare = Request {
+            method: "GET".into(),
+            path: "/".into(),
+            version: "HTTP/1.0".into(),
+            headers: Vec::new(),
+        };
+        assert_eq!(
+            ConnectionPolicy::from_request(&bare),
+            ConnectionPolicy::Close
+        );
+    }
+
+    /// Covers the empty-fallback branch of
+    /// [`Server::canonical_document_root`]. The accessor falls back to
+    /// `document_root` when the cached canonical path is empty, which
+    /// happens for `Server` values reconstructed via `Default` (e.g.
+    /// after `serde::Deserialize` since `canonical_document_root` is
+    /// `#[serde(skip)]`).
+    #[test]
+    fn canonical_document_root_falls_back_when_cache_is_empty() {
+        // `canonical_document_root` is `#[serde(skip, default)]`, so a
+        // freshly-defaulted `Server` has it empty. Construct via
+        // struct-literal so the empty-cache state is set at build
+        // time rather than mutated post-`Default` (clippy's
+        // `field_reassign_with_default` flags the latter).
+        let mut server = Server {
+            document_root: PathBuf::from("/tmp/some-root"),
+            canonical_document_root: PathBuf::new(),
+            ..Server::default()
+        };
+        assert_eq!(
+            server.canonical_document_root(),
+            Path::new("/tmp/some-root")
+        );
+
+        // When the cache is populated the accessor returns it
+        // unchanged, not the configured `document_root`.
+        server.canonical_document_root =
+            PathBuf::from("/canonical/elsewhere");
+        assert_eq!(
+            server.canonical_document_root(),
+            Path::new("/canonical/elsewhere")
+        );
     }
 }

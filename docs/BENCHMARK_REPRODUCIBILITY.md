@@ -16,7 +16,7 @@ Primary script:
 
 What the script enforces:
 - Creates deterministic static assets under `target/perf-root`.
-- Starts `examples/benchmark_target.rs`.
+- Starts `examples/bench.rs` (formerly `benchmark_target.rs`).
 - Waits for readiness on the configured socket.
 - Fails if connection errors appear in benchmark output.
 - Applies regression thresholds for:
@@ -47,7 +47,7 @@ nproc 2>/dev/null || sysctl -n hw.ncpu
 1. Build once:
 
 ```bash
-cargo build --release --example benchmark_target --features async,high-perf
+cargo build --release --example bench --features 'async,high-perf,high-perf-multi-thread,http2'
 ```
 
 2. Run benchmark matrix with explicit controls:
@@ -76,11 +76,13 @@ Use this interpretation:
 
 ## CI Integration
 
-Performance checks run in:
-- `.github/workflows/perf-regression.yml`
+Performance regression checks run inside the consolidated CI pipeline (`.github/workflows/ci.yml` calls
+`sebastienrousseau/pipelines/.github/workflows/rust-ci.yml` which exercises the standard test matrix).
+The bombardier driver is not yet wired into CI; reproduce locally with `scripts/load_test.sh` (macOS) or
+`scripts/linux_bench.sh` (Linux container).
 
 Recommendations:
-- Keep baseline thresholds conservative in CI to reduce false negatives.
+- Keep baseline thresholds conservative when wiring perf gating to reduce false negatives.
 - Store version-specific baselines (`baseline-vX.Y.Z.json`) for release gating.
 
 ## Common Failure Modes

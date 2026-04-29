@@ -26,13 +26,24 @@ fn main() -> std::io::Result<()> {
 HTTP_HANDLE_MODE=high-perf \
 HTTP_HANDLE_ADDR=127.0.0.1:8090 \
 HTTP_HANDLE_ROOT=./public \
-cargo run --example benchmark_target --features async,high-perf
+cargo run --release --example bench --features 'async,high-perf,high-perf-multi-thread,http2'
+```
+
+For the `high-perf-mt` mode (multi-thread Tokio runtime, the
+throughput leader on every Linux row in `docs/PERFORMANCE.md`):
+
+```bash
+HTTP_HANDLE_MODE=high-perf-mt \
+HTTP_HANDLE_WORKERS=4 \
+cargo run --release --example bench --features 'high-perf-multi-thread'
 ```
 
 ## Validate Feature-Scoped Example
 
 ```bash
-cargo run --example feature_http2_server --features http2
+./scripts/example.sh http2     # auto-resolves --features http2
+./scripts/example.sh enterprise
+./scripts/example.sh --list    # 30 demos, one per feature
 ```
 
 ## Release Readiness Recipe

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2026 Sebastien Rousseau
+// Copyright (c) 2023 - 2026 HTTP Handle
 
 //! Async runtime helpers for panic-safe blocking execution.
 
@@ -78,7 +78,13 @@ mod tests {
             panic!("boom")
         })
         .await;
-        assert!(matches!(result, Err(ServerError::TaskFailed(_))));
+        let err =
+            result.expect_err("blocking panic must surface as Err");
+        // Direct discriminant compare avoids the `assert!(matches!(...))`
+        // macro expansion which leaves an uncovered sub-region for the
+        // implicit "did not match" arm.
+        let is_task_failed = matches!(err, ServerError::TaskFailed(_));
+        assert!(is_task_failed, "unexpected variant: {err:?}");
     }
 
     #[tokio::test]
@@ -87,7 +93,9 @@ mod tests {
             Err(ServerError::Custom("inner".to_string()))
         })
         .await;
-        assert!(matches!(result, Err(ServerError::Custom(_))));
+        let err = result.expect_err("inner Err must propagate");
+        let is_custom = matches!(err, ServerError::Custom(_));
+        assert!(is_custom, "unexpected variant: {err:?}");
     }
 
     #[tokio::test]

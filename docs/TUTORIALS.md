@@ -19,7 +19,7 @@ echo '<h1>Hello from http-handle</h1>' > public/index.html
 
 ```toml
 [dependencies]
-http-handle = "0.0.4"
+http-handle = "0.0.5"
 ```
 
 3. Start the server:
@@ -59,9 +59,10 @@ fn main() -> std::io::Result<()> {
         .address("127.0.0.1:8080")
         .document_root("./public")
         .request_timeout(Duration::from_secs(15))
-        .enable_cors(true)
-        .add_header("X-Content-Type-Options", "nosniff")
-        .build()?;
+        .enable_cors()
+        .custom_header("X-Content-Type-Options", "nosniff")
+        .build()
+        .expect("server build");
 
     server.start()
 }
@@ -89,13 +90,14 @@ You want async-first serving and benchmarkable throughput.
 HTTP_HANDLE_MODE=high-perf \
 HTTP_HANDLE_ADDR=127.0.0.1:8090 \
 HTTP_HANDLE_ROOT=./target/perf-root \
-cargo run --example benchmark_target --features async,high-perf
+cargo run --release --example bench --features 'async,high-perf,high-perf-multi-thread,http2'
 ```
 
-2. In another terminal, run the benchmark matrix:
+2. In another terminal, run the bombardier driver:
 
 ```bash
-bash scripts/perf/benchmark_matrix.sh
+./scripts/load_test.sh high-perf 30 256
+# Modes: sync, async, high-perf, high-perf-mt, http2
 ```
 
 Expected result:
@@ -104,13 +106,30 @@ Expected result:
 
 ## 4. Validate Feature-Specific Behavior
 
-You want confidence that optional modules behave correctly.
+You want confidence that optional modules behave correctly. Each
+feature has a one-word example registered in `Cargo.toml`. The
+friction-free way is the wrapper that auto-resolves the feature flag:
 
-Use focused examples:
-- Async runtime: `cargo run --example feature_async_runtime --features async`
-- HTTP/2 path: `cargo run --example feature_http2_server --features http2`
-- Auto-tuning: `cargo run --example feature_runtime_autotune --features autotune`
-- Tenant isolation: `cargo run --example feature_tenant_isolation --features multi-tenant`
+```bash
+./scripts/example.sh async
+./scripts/example.sh http2
+./scripts/example.sh autotune
+./scripts/example.sh tenant
+./scripts/example.sh enterprise
+./scripts/example.sh --list      # see every example name
+```
+
+Or via raw cargo:
+
+```bash
+cargo run --features async        --example async
+cargo run --features http2        --example http2
+cargo run --features autotune     --example autotune
+cargo run --features multi-tenant --example tenant
+cargo run --features enterprise   --example enterprise
+```
+
+The full capability → example matrix lives in [docs/EXAMPLES.md](EXAMPLES.md).
 
 ## 5. Production Validation Checklist
 

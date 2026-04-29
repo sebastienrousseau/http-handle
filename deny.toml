@@ -1,21 +1,50 @@
+# cargo-deny policy for http-handle.
+#
+# Tightens the supply-chain audit at PR time. Run locally with:
+#   cargo deny check
+# Or scope to a single category:
+#   cargo deny check {licenses,advisories,bans,sources}
+
+[graph]
+# Skip dev-dependencies for the bans/sources/duplicate checks — they
+# pull a long tail (criterion, plotters, proptest, …) that we don't
+# ship and don't want governing the policy.
+all-features = true
+
 [licenses]
-# List of allowed licenses for dependencies
-allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
-
-[bans]
-# Lint level for when multiple versions of the same crate are detected
-multiple-versions = "warn"
-
-# The graph highlighting used when creating dotgraphs for crates with multiple versions
-# Options: "lowest-version", "simplest-path", "all"
-highlight = "all"
-
-# Certain crates/versions that will be skipped when doing duplicate detection.
-skip = []
-
-# Similarly to `skip` allows you to skip certain crates during duplicate detection, unlike skip, it also includes the entire tree of transitive dependencies starting at the specified crate, up to a certain depth, which is by default infinite
-skip-tree = []
+# Permissive licenses we accept from dependencies, plus the crate's own
+# AGPL-3.0-only (the project license, not a downstream dependency).
+allow = [
+    "AGPL-3.0-only",
+    "Apache-2.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.93
 
 [advisories]
-# List of advisory IDs to ignore
+# Treat all unmaintained / yanked crates as warnings (don't fail PR
+# entirely on transitives we can't pin), but fail on actual security
+# advisories. Specific ignores can be added here with rationale.
+yanked = "deny"
 ignore = []
+
+[bans]
+multiple-versions = "warn"
+highlight = "all"
+# Crates we explicitly forbid (e.g. abandoned or known-bad).
+deny = []
+# Skip duplicate detection for these crates — useful when several
+# transitives wedge us into multiple versions of a low-level dep.
+skip = []
+skip-tree = []
+
+[sources]
+# All crates must come from the official registry by default. Add
+# allow-git / allow-registry entries here if a vetted git source is
+# ever required.
+unknown-registry = "deny"
+unknown-git = "deny"

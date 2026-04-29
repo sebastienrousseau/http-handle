@@ -13,4 +13,4 @@ Tenant-scoped configuration and secrets are available in
 
 ## Example
 
-See: `examples/feature_tenant_isolation.rs`.
+See: `examples/tenant.rs` (run via `./scripts/example.sh tenant`).
