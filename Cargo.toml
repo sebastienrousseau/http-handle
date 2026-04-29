@@ -10,6 +10,19 @@ version = "0.0.5"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.88.0"                     # Minimum supported Rust version
+categories = [
+    "web-programming::http-server",
+    "network-programming",
+    "asynchronous",
+    "caching",
+]
+keywords = [
+    "http",
+    "http-server",
+    "tokio",
+    "keep-alive",
+    "static-files",
+]
 license = "AGPL-3.0-only"                   # Project license
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
