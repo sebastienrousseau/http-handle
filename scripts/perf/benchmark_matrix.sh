@@ -15,7 +15,7 @@ MIN_RPS_PER_CORE="${MIN_RPS_PER_CORE:-300}"
 MAX_P99_MS="${MAX_P99_MS:-100}"
 READY_RETRIES="${READY_RETRIES:-600}"
 READY_SLEEP_SECS="${READY_SLEEP_SECS:-0.1}"
-PREBUILT_BIN="${PREBUILT_BIN:-target/debug/examples/benchmark_target}"
+PREBUILT_BIN="${PREBUILT_BIN:-target/debug/examples/bench}"
 BASELINE_FILE="${PERF_BASELINE_FILE:-scripts/perf/baseline.json}"
 BASELINE_DIR="${PERF_BASELINE_DIR:-scripts/perf}"
 RESULT_JSON="${PERF_RESULT_JSON:-target/perf-result.json}"
@@ -55,7 +55,7 @@ if [[ -n "${PERF_USE_PREBUILT:-}" && -x "${PREBUILT_BIN}" ]]; then
   env HTTP_HANDLE_ADDR="$ADDR" HTTP_HANDLE_ROOT="$ROOT_DIR" HTTP_HANDLE_MODE="$MODE" \
     "${PREBUILT_BIN}" >/tmp/http_handle_bench.log 2>&1 &
 else
-  cargo run --example benchmark_target --features "$FEATURES" >/tmp/http_handle_bench.log 2>&1 &
+  cargo run --example bench --features "$FEATURES" >/tmp/http_handle_bench.log 2>&1 &
 fi
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT

@@ -37,25 +37,51 @@ You need [Rust](https://rustup.rs/) 1.88.0 or later. Works on macOS, Linux, and 
 
 ## Overview
 
-HTTP Handle is a lightweight HTTP server library for serving static websites. Start with `Server::new` for quick prototyping, then graduate to `ServerBuilder` for production control.
+HTTP Handle is a lightweight static-file HTTP server library. Start with `Server::new` for quick prototyping, graduate to `ServerBuilder` for policy configuration, and switch to the async `perf_server` modes (`high-perf` / `high-perf-multi-thread`) for production throughput. Single binary, no runtime dependencies beyond libc.
 
-- **Static file serving** with automatic MIME detection
-- **Fluent builder API** for CORS, headers, and timeouts
-- **Graceful shutdown** with configurable drain timeout
-- **Directory traversal protection** built in
+**v0.0.5 highlights:**
+
+- **Static-file fast path**: pre-serialised response cache + sendfile (Linux) hits **180 k req/s** on Linux/arm64 (`high-perf-mt` mode) — see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+- **HTTP/1.1 keep-alive** on both the sync and async server paths.
+- **Five start modes**: `start()`, `start_with_thread_pool(n)`, `start_with_pooling(workers, max)`, `start_with_graceful_shutdown(timeout)`, plus the async `start_high_perf` / `start_high_perf_multi_thread`.
+- **HTTP/2 (h2c)** with `feature = "http2"`.
+- **HTTP/3 ALPN routing + fallback chain** with `feature = "http3-profile"` (QUIC termination is on the v0.2 roadmap; see [`docs/HTTP3_DESIGN.md`](docs/HTTP3_DESIGN.md)).
+- **Enterprise primitives**: TLS / mTLS policy, API-key + JWT verifiers, RBAC + ABAC, hot-reload TOML config, multi-tenant isolation, distributed rate limiter, OTLP-shaped telemetry.
 
 ---
 
 ## Features
 
-| | |
-| :--- | :--- |
-| **Static file serving** | Route requests to a document root with MIME detection |
-| **ServerBuilder** | Fluent API for CORS, headers, and timeouts |
-| **Graceful shutdown** | Signal-aware shutdown with configurable drain |
-| **Security** | Directory traversal protection and path sanitisation |
-| **Precompressed assets** | Content negotiation for br, gzip, and zstd |
-| **TLS / mTLS** | TLS and mutual-TLS configuration primitives |
+| Capability | Default? | Feature flag |
+| :--- | :--- | :--- |
+| **Static file serving** with auto MIME detection | yes | — |
+| **`ServerBuilder`** (CORS, custom headers, timeouts, rate limit, cache TTL) | yes | — |
+| **HTTP/1.1 keep-alive** (RFC 7230 §6.3) | yes | — |
+| **`ThreadPool` + `ConnectionPool`** for bounded resources | yes | — |
+| **Graceful shutdown** with configurable drain timeout | yes | — |
+| **Directory traversal protection** + path sanitisation | yes | — |
+| **64 MiB cap on buffered response bodies** (OOM guard) | yes | — |
+| **Sharded rate limiter** (16-way) + **ETag LRU cache** | yes | — |
+| **Precompressed asset negotiation** (br / zstd / gzip) | yes | — |
+| **`LanguageDetector`** (built-in + custom regex patterns) | yes | — |
+| **Async runtime helpers** + async server (`start_async`) | opt-in | `async` |
+| **High-perf async server** (semaphore-bounded, sendfile) | opt-in | `high-perf` |
+| **Multi-thread Tokio runtime entry point** | opt-in | `high-perf-multi-thread` |
+| **Pre-serialised response cache** | with `high-perf` | `high-perf` |
+| **Concurrent batch file reads** | opt-in | `batch` |
+| **Pull-based chunked streaming** (`ChunkStream`) | opt-in | `streaming` |
+| **Const MIME table + bitset language detection** | opt-in | `optimized` |
+| **Structured tracing** (`tracing` + subscriber) | opt-in | `observability` |
+| **HTTP/2 server** (h2c) | opt-in | `http2` |
+| **HTTP/3 ALPN profile + fallback chain** | opt-in | `http3-profile` |
+| **Distributed rate limiter** (pluggable backend) | opt-in | `distributed-rate-limit` |
+| **Multi-tenant config + scoped secrets** | opt-in | `multi-tenant` |
+| **Host-profile-derived auto-tuning** | opt-in | `autotune` |
+| **TLS / mTLS policy primitives** | opt-in | `enterprise` (umbrella for `tls`, `auth`, `config`, `observability`) |
+| **API-key + JWT + RBAC/ABAC enforcement** | opt-in | `enterprise` |
+| **TOML config + hot-reload watcher** | opt-in | `enterprise` |
+
+`#![deny(unsafe_code)]` at the crate root with three documented exceptions (libc::sendfile, two test-module env-var mutations).
 
 ---
 
@@ -140,6 +166,64 @@ needs.
 | `all` | `cargo run --example all` | Spawns every other example via `cargo run --example` |
 | `bench` | `scripts/load_test.sh <mode>` | Bombardier target — sync / async / high-perf / high-perf-mt / http2 |
 | `dhat` | `cargo run --release --features high-perf --example dhat` | Heap-profile harness writing `dhat-heap.json` |
+
+---
+
+## FAQ
+
+Short answers to the questions that come up most often. The long-form
+matrix lives in [`docs/FAQ.md`](docs/FAQ.md).
+
+**Which `start*` should I use?** Default to `Server::start()` for
+prototyping. For production: `start_with_pooling(workers, max_conns)`
+on the sync path, or `start_high_perf_multi_thread(server, limits, None)`
+on the async path. The async multi-thread mode is the throughput leader
+on every Linux row in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
+**When does sync win, and when does async win?** Sync's
+thread-per-connection model is competitive on memory-rich hosts with
+zero per-request I/O wait. Async (`high-perf` / `high-perf-mt`) wins on
+memory-constrained hosts, mixed-I/O workloads (DB / upstream awaits),
+and any deployment where the OS thread cap matters.
+
+**Are the perf numbers realistic for my workload?** They're upper
+bounds for a small static body over loopback. The Linux row (180 k
+req/s on `high-perf-mt`) is more representative for production than
+the macOS row because it tests the real `epoll` networking path.
+Reproduce with `scripts/load_test.sh` (host) or `scripts/linux_bench.sh`
+(container).
+
+**Can I run this over HTTPS?** Not in-process today —
+`enterprise::TlsPolicy` is configuration-only. Terminate TLS at a
+reverse proxy (nginx, Caddy, ALB) and proxy plaintext HTTP/1.1 or h2c
+to `http-handle` over loopback. In-process `rustls` termination is on
+the v0.1 roadmap.
+
+**What about HTTP/3?** ALPN routing + fallback chain ship as
+`feature = "http3-profile"`. QUIC termination + h3 frames are deferred
+to v0.2 (design proposal in [`docs/HTTP3_DESIGN.md`](docs/HTTP3_DESIGN.md)).
+
+**Can I plug in my own request handler?** Not yet — the crate is a
+static-file server with configurable policies. A request-handler trait
+is on the v0.1 roadmap. Today, run `http-handle` for `/static/*` and a
+dynamic framework (`axum`, `actix-web`) for the rest.
+
+**`error: target 'enterprise' requires the features: 'enterprise'` —
+how do I run feature-gated examples?** Use the wrapper:
+`./scripts/example.sh <name>`. It auto-resolves the right `--features`
+flag. Or copy the literal command from the `## Examples` table above.
+
+**How does the response cache work?** v0.0.5 added a pre-serialised
+`(head_prefix, body)` cache on the `high-perf` static-file fast path,
+keyed by `(canonical_path, mtime, file_len)`, capped at 256 entries
+~16 MiB total. Hits skip the syscall + format work; the per-request
+cost on a hit is one `Connection:` header format and one `write_all`.
+Above-threshold files (>= `sendfile_threshold_bytes`) skip the cache
+entirely so the OOM guard remains intact.
+
+For deployment patterns (nginx, Kubernetes), security model (rate
+limiter, traversal protection, body cap), tuning knobs, and 20+ more
+answers, see [`docs/FAQ.md`](docs/FAQ.md).
 
 ---
 

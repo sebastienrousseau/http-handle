@@ -92,12 +92,12 @@ cargo bench --bench perf_server_benchmark --features high-perf
 cargo bench --bench micro_benchmark
 ```
 
-For external load testing, `scripts/load_test.sh` drives `bombardier` against the `benchmark_target` example and prints throughput / latency distribution. Pre-condition: `bombardier` on `$PATH`.
+For external load testing, `scripts/load_test.sh` drives `bombardier` against the `bench` example and prints throughput / latency distribution. Pre-condition: `bombardier` on `$PATH`. Linux numbers for `docs/PERFORMANCE.md` are reproduced via `scripts/linux_bench.sh` inside a `linux/arm64` container (`podman run --platform linux/arm64 -v "$(pwd):/work" -w /work docker.io/library/rust:1.88-slim bash scripts/linux_bench.sh`).
 
 ### Heap profiling
 
 ```bash
-cargo run --example dhat_alloc_profile --features high-perf
+cargo run --release --example dhat --features high-perf
 # Writes dhat-heap.json. View with https://nnethercote.github.io/dh_view/dh_view.html.
 ```
 
@@ -111,7 +111,7 @@ Latest measured numbers from criterion micro/integration benches and external `b
 
 Three dev-deps were added in v0.0.5; they are dev-only and never linked into production builds:
 
-- `dhat = "0.3"` — heap profile harness (`examples/dhat_alloc_profile.rs`).
+- `dhat = "0.3"` — heap profile harness (`examples/dhat.rs`).
 - `criterion` — bench harness (existed pre-0.0.5; documented here for completeness).
 - `proptest`, `assert_fs`, `predicates`, `tempfile` — test fixtures.
 

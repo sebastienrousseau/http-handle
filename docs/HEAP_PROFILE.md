@@ -1,6 +1,6 @@
-# Heap Profile Findings — `dhat_alloc_profile`
+# Heap Profile Findings — `dhat` example
 
-Captured 2026-04-27 via `cargo run --example dhat_alloc_profile --features high-perf` against the v0.0.5 `feat/v0.0.5` branch on Apple Silicon (Darwin 25.4.0).
+Captured 2026-04-27 via `cargo run --example dhat --features high-perf` against the v0.0.5 `feat/v0.0.5` branch on Apple Silicon (Darwin 25.4.0).
 
 Workload: 1024 sequential GET roundtrips with `Connection: close` against `start_high_perf` on a current-thread tokio runtime.
 
@@ -41,10 +41,9 @@ Sites attributed to `http_handle::*`: **64 % of total bytes**. The rest is tokio
 ## How to re-run
 
 ```bash
-cargo build --example dhat_alloc_profile --features high-perf
-target/debug/examples/dhat_alloc_profile
-# or via tmpfs target:
-/tmp/builds/cargo/debug/examples/dhat_alloc_profile
+cargo run --release --example dhat --features high-perf
+# or, via the wrapper:
+./scripts/example.sh dhat --release
 ```
 
 The profile writes `dhat-heap.json` in the working directory. View interactively with [`dh_view.html`](https://nnethercote.github.io/dh_view/dh_view.html). Use the **dev** profile (debug symbols preserved) — the release profile strips, leaving frames as raw addresses.

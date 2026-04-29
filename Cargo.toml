@@ -72,7 +72,7 @@ assert_fs = "1.1"                           # File system assertion library for 
 predicates = "3.1"                          # Predicate assertions for test conditions
 criterion = "0.8"                           # Benchmarking library to test performance
 proptest = "1.6"                            # Property-based testing
-dhat = "0.3"                                # Heap profiling for the dhat_alloc_profile example
+dhat = "0.3"                                # Heap profiling for the `dhat` example
 
 # -----------------------------------------------------------------------------
 # Examples
