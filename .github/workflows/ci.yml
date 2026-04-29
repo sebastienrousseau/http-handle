@@ -31,4 +31,10 @@ jobs:
     uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
     with:
       type: rust
-      redirect-crate: http-handle
+      # rustdoc emits to the [lib] name with underscores, not the
+      # [package] name with hyphens. The pipelines workflow writes
+      # `url=/${redirect-crate}/` literally into target/doc/index.html,
+      # so this MUST be the underscored lib name (`http_handle`) or the
+      # root redirect lands on a 404. Match it to `[lib] name` in
+      # Cargo.toml whenever you change either.
+      redirect-crate: http_handle
