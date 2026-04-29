@@ -49,7 +49,7 @@ ctrlc = "3.4"                               # Signal handling for graceful shutd
 crossbeam-channel = "0.5"                   # Lock-free MPMC channel for the worker thread pool hot path
 memchr = "2.8"                              # SIMD byte search for HTTP header parsing (NEON / AVX2)
 regex = "1.11"                              # Runtime custom language pattern support
-tokio = { version = "1.44", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
+tokio = { version = "1.50", optional = true, default-features = false, features = ["rt", "sync", "time", "macros", "net", "fs", "io-util"] } # Async runtime support
 tracing = { version = "0.1", optional = true }     # Structured logging
 tracing-subscriber = { version = "0.3", optional = true, features = ["fmt", "env-filter"] } # Tracing subscriber
 h2 = { version = "0.4", optional = true }          # HTTP/2 protocol support
@@ -57,7 +57,7 @@ http = { version = "1.3", optional = true }        # HTTP type definitions for h
 bytes = { version = "1.10", optional = true }      # Zero-copy byte buffers for h2 body frames
 libc = { version = "0.2", optional = true }        # Unix sendfile support
 notify = { version = "8.2", optional = true }      # Config hot-reload file watcher
-arc-swap = { version = "1.7", optional = true }    # Lock-free hot config swaps
+arc-swap = { version = "1.9", optional = true }    # Lock-free hot config swaps
 toml = { version = "1.0", optional = true }        # Profile config loading
 
 # -----------------------------------------------------------------------------
