@@ -23,7 +23,7 @@ keywords = [
     "keep-alive",
     "static-files",
 ]
-license = "AGPL-3.0-only"                   # Project license
+license = "Apache-2.0 OR MIT"               # Project license
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
 """                                         # Short library description

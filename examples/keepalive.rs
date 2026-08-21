@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 // Copyright (c) 2023 - 2026 HTTP Handle
 
 //! HTTP/1.1 keep-alive: serve N requests on a single TCP connection.
@@ -89,7 +89,7 @@ fn main() {
 
             vec![
                 format!("addr        = {addr}"),
-                format!("requests    = 5 (5th sends Connection: close)"),
+                "requests    = 5 (5th sends Connection: close)".into(),
                 format!("status 200  = {succeeded} / 5"),
                 format!("elapsed     = {elapsed:?}"),
                 "Each request reused the same TCP connection — only the".into(),

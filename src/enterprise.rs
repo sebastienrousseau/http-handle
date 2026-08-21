@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0 OR MIT
 // Copyright (c) 2023 - 2026 HTTP Handle
 
 //! Enterprise policy primitives for transport security, auth, telemetry, and runtime profiles.
