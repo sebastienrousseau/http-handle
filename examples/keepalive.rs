@@ -89,7 +89,7 @@ fn main() {
 
             vec![
                 format!("addr        = {addr}"),
-                format!("requests    = 5 (5th sends Connection: close)"),
+                "requests    = 5 (5th sends Connection: close)".into(),
                 format!("status 200  = {succeeded} / 5"),
                 format!("elapsed     = {elapsed:?}"),
                 "Each request reused the same TCP connection — only the".into(),
