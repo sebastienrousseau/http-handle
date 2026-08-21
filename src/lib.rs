@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+// Copyright (c) 2023 - 2026 HTTP Handle
+
 // Crate-wide unsafe policy: deny by default. Specific authorized sites
 // (libc::sendfile in perf_server::try_sendfile_unix, process-env mutation
 // in tenant_isolation and runtime_autotune tests) carry an explicit
@@ -12,9 +15,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::bare_urls)]
 #![deny(rustdoc::invalid_html_tags)]
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (c) 2023 - 2026 HTTP Handle
-
 // src/lib.rs
 #![doc = include_str!("../README.md")]
 #![doc(

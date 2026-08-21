@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.0.7] — 2026-08-21
+
+### Changed
+
+- **Relicensed to `Apache-2.0 OR MIT`.** This crate was `AGPL-3.0-only`
+  while its README promised Apache-2.0 or MIT — a contradiction since the
+  AGPL policy commit, and the manifest is what tooling reads.
+
+  Strong copyleft was reaching consumers who had been told otherwise.
+  `staticdatagen` is published as Apache-2.0 OR MIT and depended on this
+  crate through a default feature, so a plain `cargo add staticdatagen`
+  handed downstream users AGPL obligations — including the network-use
+  clause — from a dependency they never chose and mostly never called.
+
+  Relicensing is possible because the copyright is held solely by the
+  project owner; the only other contributor in the history is Dependabot,
+  which produces no copyrightable work.
+
+  **Versions 0.0.6 and earlier remain AGPL-3.0-only on crates.io.**
+  Relicensing is not retroactive: consumers must move to 0.0.7 or later to
+  take the permissive terms.
+
+  `LICENSE` (an AGPL pointer) is replaced by the full `LICENSE-APACHE` and
+  `LICENSE-MIT` texts, 98 SPDX headers are rewritten, `deny.toml` no longer
+  allows `AGPL-3.0-only` from any source, and
+  `scripts/enforce_agpl_headers.sh` becomes
+  `scripts/enforce_license_headers.sh`.
+
 ## [0.0.5] - 2026-04-26
 
 ### ⚠️ Breaking

@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "http-handle"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "arc-swap",
  "assert_fs",

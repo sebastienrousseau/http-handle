@@ -6,7 +6,7 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.6"                           # Current version of the crate
+version = "0.0.7"                           # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.88.0"                     # Minimum supported Rust version
@@ -23,7 +23,7 @@ keywords = [
     "keep-alive",
     "static-files",
 ]
-license = "AGPL-3.0-only"                   # Project license
+license = "Apache-2.0 OR MIT"               # Project license
 description = """
 A fast and lightweight Rust library for handling HTTP requests and responses.
 """                                         # Short library description

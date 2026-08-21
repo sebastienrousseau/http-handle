@@ -12,10 +12,10 @@
 all-features = true
 
 [licenses]
-# Permissive licenses we accept from dependencies, plus the crate's own
-# AGPL-3.0-only (the project license, not a downstream dependency).
+# Permissive licenses we accept, from dependencies and from this crate
+# itself. AGPL-3.0-only was allowed here while it was the project licence;
+# it is not permitted from any source now.
 allow = [
-    "AGPL-3.0-only",
     "Apache-2.0",
     "CC0-1.0",
     "ISC",

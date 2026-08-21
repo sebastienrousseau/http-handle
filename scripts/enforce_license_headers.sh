@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0 OR MIT
 # Copyright (c) 2023 - 2026 HTTP Handle
 
 set -euo pipefail
 
 mode="${1:-check}"
 
-rust_header='// SPDX-License-Identifier: AGPL-3.0-only\n// Copyright (c) 2023 - 2026 HTTP Handle\n'
-shell_header='# SPDX-License-Identifier: AGPL-3.0-only\n# Copyright (c) 2023 - 2026 HTTP Handle\n'
+rust_header='// SPDX-License-Identifier: Apache-2.0 OR MIT\n// Copyright (c) 2023 - 2026 HTTP Handle\n'
+shell_header='# SPDX-License-Identifier: Apache-2.0 OR MIT\n# Copyright (c) 2023 - 2026 HTTP Handle\n'
 
 status=0
 
@@ -30,27 +30,27 @@ check_or_apply() {
   if ! head -n 2 "$file" | grep -q "$prefix"; then
     if [[ "$mode" == "apply" ]]; then
       apply_header "$file" "$header"
-      echo "Added AGPL header: $file"
+      echo "Added licence header: $file"
     else
-      echo "Missing AGPL header: $file"
+      echo "Missing licence header: $file"
       status=1
     fi
   fi
 }
 
 while IFS= read -r f; do
-  check_or_apply "$f" "SPDX-License-Identifier: AGPL-3.0-only" "$rust_header"
+  check_or_apply "$f" "SPDX-License-Identifier: Apache-2.0 OR MIT" "$rust_header"
 done < <(find src tests examples benches fuzz -type f -name '*.rs' | sort)
 
 while IFS= read -r f; do
-  check_or_apply "$f" "SPDX-License-Identifier: AGPL-3.0-only" "$shell_header"
+  check_or_apply "$f" "SPDX-License-Identifier: Apache-2.0 OR MIT" "$shell_header"
 done < <(find scripts -type f -name '*.sh' | sort)
 
-check_or_apply build.rs "SPDX-License-Identifier: AGPL-3.0-only" "$rust_header"
+check_or_apply build.rs "SPDX-License-Identifier: Apache-2.0 OR MIT" "$rust_header"
 
 if [[ $status -ne 0 ]]; then
-  echo "AGPL header enforcement failed."
+  echo "Licence header enforcement failed."
   exit 1
 fi
 
-echo "AGPL headers validated."
+echo "Licence headers validated."
