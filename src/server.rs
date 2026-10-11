@@ -558,18 +558,22 @@ impl ConnectionPool {
 
     /// Attempts to acquire a connection from the pool
     pub fn acquire(&self) -> Result<ConnectionGuard, io::Error> {
-        #[allow(deprecated_in_future)]
-        let reserved = self.active_connections.fetch_update(
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-            |current| {
-                if current < self.max_connections {
-                    Some(current + 1)
-                } else {
-                    None
-                }
-            },
-        );
+        let mut current =
+            self.active_connections.load(Ordering::SeqCst);
+        let reserved = loop {
+            if current >= self.max_connections {
+                break Err(());
+            }
+            match self.active_connections.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break Ok(()),
+                Err(actual) => current = actual,
+            }
+        };
         if reserved.is_err() {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
