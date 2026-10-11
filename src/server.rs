@@ -558,7 +558,8 @@ impl ConnectionPool {
 
     /// Attempts to acquire a connection from the pool
     pub fn acquire(&self) -> Result<ConnectionGuard, io::Error> {
-        let mut current = self.active_connections.load(Ordering::SeqCst);
+        let mut current =
+            self.active_connections.load(Ordering::SeqCst);
         let reserved = loop {
             if current >= self.max_connections {
                 break Err(());
