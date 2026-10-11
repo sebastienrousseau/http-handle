@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.0.8] - 2026-10-11
+
+### Changed
+
+- Upgraded euxis-commons from 0.0.2 to 0.0.5.
+- Updated dependencies: thiserror (2.0.21), log (0.4.34), crossbeam-channel (0.5.17), h2 (0.4.19), toml (1.1.6).
+
 ## [0.0.7] — 2026-08-21
 
 ### Changed
