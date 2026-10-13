@@ -178,7 +178,7 @@ to isolate config and secrets per `TenantId`.
 beyond the system libc. A minimal container build:
 
 ```dockerfile
-FROM rust:1.88-slim AS build
+FROM rust:1.89-slim AS build
 WORKDIR /src
 COPY . .
 RUN cargo build --release --features 'high-perf-multi-thread'

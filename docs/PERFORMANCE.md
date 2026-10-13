@@ -27,7 +27,7 @@ Linux's `epoll` path is 4–6× faster than macOS's `kqueue` on the same host ac
 ```bash
 podman run --rm --platform linux/arm64 \
     -v "$(pwd):/work" -w /work \
-    docker.io/library/rust:1.88-slim \
+    docker.io/library/rust:1.89-slim \
     bash scripts/linux_bench.sh
 ```
 
@@ -72,7 +72,7 @@ HTTP_HANDLE_WORKERS=4 ./scripts/load_test.sh high-perf-mt
 # Linux (in-container; needs Docker / podman / OrbStack).
 podman run --rm --platform linux/arm64 \
     -v "$(pwd):/work" -w /work \
-    docker.io/library/rust:1.88-slim \
+    docker.io/library/rust:1.89-slim \
     bash scripts/linux_bench.sh
 ```
 

@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.0.9] - Unreleased
+
+### Changed
+
+- **The MSRV is now Rust 1.89.0** (was 1.88.0), the floor shared by the
+  maintainer's Rust crates. `rust-version`, the `build.rs` check (which
+  still said 1.87), the README, the migration guide, and the Rust images
+  in the Dockerfiles and benchmark docs move together.
+
 ## [0.0.8] - 2026-10-11
 
 ### Changed

@@ -92,7 +92,7 @@ cargo bench --bench perf_server_benchmark --features high-perf
 cargo bench --bench micro_benchmark
 ```
 
-For external load testing, `scripts/load_test.sh` drives `bombardier` against the `bench` example and prints throughput / latency distribution. Pre-condition: `bombardier` on `$PATH`. Linux numbers for `docs/PERFORMANCE.md` are reproduced via `scripts/linux_bench.sh` inside a `linux/arm64` container (`podman run --platform linux/arm64 -v "$(pwd):/work" -w /work docker.io/library/rust:1.88-slim bash scripts/linux_bench.sh`).
+For external load testing, `scripts/load_test.sh` drives `bombardier` against the `bench` example and prints throughput / latency distribution. Pre-condition: `bombardier` on `$PATH`. Linux numbers for `docs/PERFORMANCE.md` are reproduced via `scripts/linux_bench.sh` inside a `linux/arm64` container (`podman run --platform linux/arm64 -v "$(pwd):/work" -w /work docker.io/library/rust:1.89-slim bash scripts/linux_bench.sh`).
 
 ### Heap profiling
 
