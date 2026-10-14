@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
+    uses: sebastienrousseau/pipelines/.github/workflows/rust-ci.yml@980375f1d96368885ff65cc4c7f1ff355a5a4095 # main 2026-10-14
     with:
       rust-version: 'stable'
       run-coverage: true
@@ -18,7 +18,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   security:
-    uses: sebastienrousseau/pipelines/.github/workflows/security.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
+    uses: sebastienrousseau/pipelines/.github/workflows/security.yml@980375f1d96368885ff65cc4c7f1ff355a5a4095 # main 2026-10-14
     with:
       language: rust
       # Override the v0.0.2 default of `medium`, which is rejected by
@@ -28,7 +28,7 @@ jobs:
 
   docs:
     if: github.ref == 'refs/heads/main'
-    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@47ed7767be5273aef0bbc60c6f6c16aba5fb6f59 # v0.0.2
+    uses: sebastienrousseau/pipelines/.github/workflows/docs.yml@980375f1d96368885ff65cc4c7f1ff355a5a4095 # main 2026-10-14
     with:
       type: rust
       # rustdoc emits to the [lib] name with underscores, not the
