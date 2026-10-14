@@ -116,7 +116,7 @@ http-handle = "0.0.3"
 
 2. Review enabled feature set and opt-in only to required modules.
 3. Ensure toolchain compatibility:
-   - Minimum Rust version is `1.88.0` (`rust-version` in `Cargo.toml`).
+   - Minimum Rust version is `1.89.0` (`rust-version` in `Cargo.toml`).
    - `euxis-commons = 0.0.2` requires Rust `1.88.0`.
 4. Re-run validation gates:
 

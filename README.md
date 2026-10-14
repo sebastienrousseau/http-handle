@@ -31,7 +31,7 @@ Or add to `Cargo.toml`:
 http-handle = "0.0.5"
 ```
 
-You need [Rust](https://rustup.rs/) 1.88.0 or later. Works on macOS, Linux, and Windows.
+You need [Rust](https://rustup.rs/) 1.89.0 or later. Works on macOS, Linux, and Windows.
 
 ---
 
