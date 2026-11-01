@@ -30,7 +30,7 @@ use std::process;
 /// # Examples
 ///
 /// ```rust
-/// let min_version = "1.87";
+/// let min_version = "1.89";
 ///
 /// match version_check::is_min_version(min_version) {
 ///     Some(true) => println!("Rustc version is at least {}", min_version),
@@ -45,7 +45,7 @@ use std::process;
 /// }
 /// ```
 fn main() {
-    let min_version = "1.87";
+    let min_version = "1.89";
 
     match version_check::is_min_version(min_version) {
         Some(true) => {}

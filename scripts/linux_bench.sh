@@ -7,7 +7,7 @@
 #
 #   podman run --rm --platform linux/arm64 \
 #       -v "$(pwd):/work" -w /work \
-#       docker.io/library/rust:1.88-slim \
+#       docker.io/library/rust:1.89-slim \
 #       bash scripts/linux_bench.sh
 #
 # Builds the `bench` example with the high-perf feature set, then runs
