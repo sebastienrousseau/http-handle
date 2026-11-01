@@ -6,7 +6,7 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.9"                           # Current version of the crate
+version = "0.0.10"                          # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.89.0"                     # Minimum supported Rust version
@@ -44,7 +44,7 @@ serde = { version = "1.0", features = ["derive"] } # Serialization/deserializati
 serde_json = "1.0"                          # JSON support with Serde
 log = "0.4"                                 # Logging facade for Rust
 env_logger = { version = "0.11", optional = true } # Optional logging with environment variable support
-euxis-commons = { version = "0.0.6", default-features = false, features = ["error", "logging", "time"] }
+euxis-commons = { version = "0.0.6", default-features = false, features = ["error", "time"] }
 ctrlc = "3.4"                               # Signal handling for graceful shutdown
 crossbeam-channel = "0.5"                   # Lock-free MPMC channel for the worker thread pool hot path
 memchr = "2.8"                              # SIMD byte search for HTTP header parsing (NEON / AVX2)

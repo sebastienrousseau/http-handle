@@ -13,7 +13,7 @@
   <a href="https://crates.io/crates/http-handle"><img src="https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust" alt="Crates.io" /></a>
   <a href="https://docs.rs/http-handle"><img src="https://img.shields.io/docsrs/http-handle?style=for-the-badge&logo=docs.rs&label=docs.rs" alt="Docs.rs" /></a>
   <a href="https://codecov.io/gh/sebastienrousseau/http-handle"><img src="https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&logo=codecov" alt="Coverage" /></a>
-  <a href="https://lib.rs/crates/http-handle"><img src="https://img.shields.io/badge/lib.rs-v0.0.9-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
+  <a href="https://lib.rs/crates/http-handle"><img src="https://img.shields.io/badge/lib.rs-v0.0.10-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Or add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.9"
+http-handle = "0.0.10"
 ```
 
 You need [Rust](https://rustup.rs/) 1.89.0 or later. Works on macOS, Linux, and Windows.

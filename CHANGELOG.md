@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [0.0.10] - 2026-11-01
+
+### Changed
+
+- Trimmed `euxis-commons` features to `["error", "time"]` (dropping the unused `"logging"` feature that pulled in `config`, `yaml-rust2`, `ron`, `json5`, `rust-ini`, and `toml` `0.8` transitives).
+
 ## [0.0.9] - 2026-11-01
 
 ### Changed
