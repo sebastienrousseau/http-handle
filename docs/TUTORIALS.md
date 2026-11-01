@@ -19,7 +19,7 @@ echo '<h1>Hello from http-handle</h1>' > public/index.html
 
 ```toml
 [dependencies]
-http-handle = "0.0.5"
+http-handle = "0.0.9"
 ```
 
 3. Start the server:

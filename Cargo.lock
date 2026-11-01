@@ -663,9 +663,9 @@ dependencies = [
 
 [[package]]
 name = "euxis-commons"
-version = "0.0.5"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59d23b9dc106b263f9fff0926ab44c2e8833b340537b4c7da0c153bffce3e319"
+checksum = "42141f7a7bc6d35b09a0e035116d46be0d08a69c9a8851e955a36d136f38422c"
 dependencies = [
  "config",
  "crossbeam-queue",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "http-handle"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "arc-swap",
  "assert_fs",

@@ -17,11 +17,11 @@ The crate ships five entry points; pick by deployment shape, not by
 | `Server::start_with_pooling(workers, max_connections)` | Production deployments where you also want to cap concurrent connections. | Same as above plus a hard 503 when the connection pool is full. |
 | `Server::start_with_graceful_shutdown(timeout)` | SIGINT / SIGTERM-aware exit. | Wraps `start()` with a drain loop that waits up to `timeout` for in-flight connections. |
 | `perf_server::start_high_perf(server, limits)` (`feature = "high-perf"`) | Memory-constrained hosts, mixed I/O workloads, or one-process-per-CPU deployments behind a load balancer. | Single OS thread, async accept loop, semaphore-bounded inflight + queue, sendfile fast-path on Linux. |
-| `perf_server::start_high_perf_multi_thread(server, limits, workers)` (`feature = "high-perf-multi-thread"`) | Same workloads as `start_high_perf` but on multi-core hosts where work-stealing helps. As of v0.0.5 this is the **throughput leader** on every Linux row in `docs/PERFORMANCE.md`. | Builds a multi-thread Tokio runtime internally — callers don't need `rt-multi-thread` on their own tokio dep. |
+| `perf_server::start_high_perf_multi_thread(server, limits, workers)` (`feature = "high-perf-multi-thread"`) | Same workloads as `start_high_perf` but on multi-core hosts where work-stealing helps. As of v0.0.9 this is the **throughput leader** on every Linux row in `docs/PERFORMANCE.md`. | Builds a multi-thread Tokio runtime internally — callers don't need `rt-multi-thread` on their own tokio dep. |
 
 ### Q. When does sync win, and when does async win?
 
-In v0.0.5, on a CPU-bound static-file workload (no I/O wait per
+In v0.0.9, on a CPU-bound static-file workload (no I/O wait per
 request), `high-perf-mt` overtakes sync once the response cache and
 coalesced write are in play. The crossover happens because the cache
 removes the per-request `format!` + `std::fs::read` cost, leaving
@@ -121,7 +121,7 @@ In-process TLS termination via `rustls` is on the v0.1 roadmap.
 `feature = "http3-profile"` ships ALPN routing and a fallback chain
 (`Http3 → Http2 → Http1`) so a load balancer can negotiate the right
 protocol. The crate does **not** terminate QUIC or speak h3 frames in
-v0.0.5 — that's deferred to v0.2 with a design proposal in
+v0.0.9 — that's deferred to v0.2 with a design proposal in
 `docs/HTTP3_DESIGN.md` (quinn + h3 + h3-quinn).
 
 ### Q. The rate limiter — is it per-instance or distributed?
@@ -169,7 +169,7 @@ server {
 
 `proxy_http_version 1.1` + `Connection: ""` enables nginx to reuse a
 keep-alive pool with `http-handle` (which speaks HTTP/1.1 keep-alive
-since v0.0.5). For multi-tenant deployments use `multi-tenant` feature
+since v0.0.9). For multi-tenant deployments use `multi-tenant` feature
 to isolate config and secrets per `TenantId`.
 
 ### Q. How do I deploy in Kubernetes / Docker?
@@ -311,10 +311,10 @@ clean on Windows under the default and `async` / `http2` /
 The crate follows pre-1.0 SemVer: any 0.0.x release line may include
 breaking changes, but every breaking change is documented in
 `CHANGELOG.md` with a migration note in `docs/MIGRATION_GUIDE.md`.
-v0.0.5 made four breaking changes; the migration guide includes
+v0.0.9 made four breaking changes; the migration guide includes
 copy-paste-ready before/after snippets.
 
-For production use, pin to an exact version (`http-handle = "=0.0.5"`)
+For production use, pin to an exact version (`http-handle = "=0.0.9"`)
 until v0.1.
 
 ### Q. When will v0.1 ship?
