@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
+mod conditional;
 mod routing;
 
 /// A request with the given method, path and headers.

@@ -21,6 +21,14 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
   document roots and ambiguous routes (same priority and
   constraints); a deserialised router is validated the same way. The
   `high-perf` fast path steps aside when a router is configured.
+- Conditional requests. File responses carry `Last-Modified`;
+  `If-Modified-Since` returns `304 Not Modified` when the file is not
+  newer. `If-None-Match` now accepts a list of tags, `*`, and the weak
+  comparison (`W/"x"` matches `"x"`), and takes precedence over
+  `If-Modified-Since`. A 304 keeps `ETag`, `Last-Modified`, `Vary`
+  and `Cache-Control`, and is answered before the file body is read.
+  The `high-perf` fast path hands conditional requests to the full
+  pipeline.
 
 ## [0.0.11] - 2026-11-07
 

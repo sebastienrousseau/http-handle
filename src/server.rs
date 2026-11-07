@@ -11,6 +11,9 @@
 //! The primary entrypoints are [`Server`] and [`ServerBuilder`].
 //!
 
+use crate::conditional::{
+    format_http_date, is_not_modified, not_modified_response,
+};
 use crate::error::ServerError;
 use crate::policy::RequestPolicies;
 use crate::request::Request;
@@ -1666,37 +1669,28 @@ fn serve_file_response(
             canonical_root,
         );
 
-    let contents =
-        read_buffered_body(&serving_path, max_buffered_body_bytes)?;
     let metadata = fs::metadata(path)?;
     let etag = compute_etag(&metadata);
-    if request
-        .header("if-none-match")
-        .is_some_and(|candidate| candidate == &*etag)
-    {
-        let mut response =
-            Response::new(304, "NOT MODIFIED", Vec::new());
-        response.add_header("ETag", &etag);
-        return Ok(response);
+    let modified = metadata.modified().ok();
+    let last_modified = modified.and_then(format_http_date);
+    if is_not_modified(request, &etag, modified) {
+        // Answered before the body is read.
+        return Ok(not_modified_response(
+            &etag,
+            last_modified.as_deref(),
+            content_encoding.is_some(),
+        ));
     }
+    let contents =
+        read_buffered_body(&serving_path, max_buffered_body_bytes)?;
 
     let content_type = get_content_type(path);
-    let mut response = if let Some((start, end)) =
-        parse_range_header(request.header("range"), contents.len())
-    {
-        let body = contents[start..=end].to_vec();
-        let mut partial = Response::new(206, "PARTIAL CONTENT", body);
-        partial.add_header(
-            "Content-Range",
-            &format!("bytes {}-{}/{}", start, end, contents.len()),
-        );
-        partial
-    } else {
-        Response::new(200, "OK", contents)
-    };
-
+    let mut response = body_response(request, contents);
     response.add_header("Content-Type", content_type);
     response.add_header("ETag", &etag);
+    if let Some(date) = &last_modified {
+        response.add_header("Last-Modified", date);
+    }
     response.add_header("Accept-Ranges", "bytes");
     if let Some(encoding) = content_encoding {
         response.add_header("Content-Encoding", encoding);
@@ -1709,6 +1703,23 @@ fn serve_file_response(
         );
     }
     Ok(response)
+}
+
+/// `206` for a satisfiable `Range`, otherwise `200` with the whole body.
+fn body_response(request: &Request, contents: Vec<u8>) -> Response {
+    if let Some((start, end)) =
+        parse_range_header(request.header("range"), contents.len())
+    {
+        let body = contents[start..=end].to_vec();
+        let mut partial = Response::new(206, "PARTIAL CONTENT", body);
+        partial.add_header(
+            "Content-Range",
+            &format!("bytes {}-{}/{}", start, end, contents.len()),
+        );
+        partial
+    } else {
+        Response::new(200, "OK", contents)
+    }
 }
 
 /// Reads `path` into memory unless it is larger than

@@ -513,9 +513,12 @@ async fn try_send_static_file_fast_path(
     if request.method() != "GET" && request.method() != "HEAD" {
         return Ok(false);
     }
-    // Routing and other request policies live in the full pipeline.
+    // Routing and other request policies live in the full pipeline,
+    // and so do conditional requests: this path sends no validators.
     if server.has_request_policies()
         || request.header("range").is_some()
+        || request.header("if-none-match").is_some()
+        || request.header("if-modified-since").is_some()
     {
         return Ok(false);
     }
