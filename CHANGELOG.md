@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [Unreleased]
+
+### Removed
+
+- The `euxis-commons` dependency. No code in the crate used it; it only
+  added a crate to every build and to the supply-chain surface.
+
 ## [0.0.10] - 2026-11-01
 
 ### Changed
