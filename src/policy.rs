@@ -4,6 +4,7 @@
 //! Optional request policies a [`Server`](crate::Server) applies to
 //! every request, whichever frontend parsed it.
 
+use crate::compression::CompressionPolicy;
 use crate::routing::Router;
 use serde::{Deserialize, Serialize};
 
@@ -15,12 +16,14 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct RequestPolicies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) router: Option<Router>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) compression: Option<CompressionPolicy>,
 }
 
 impl RequestPolicies {
     /// Whether no policy is configured, so the plain static path and
     /// its fast paths apply unchanged.
     pub(crate) fn is_empty(&self) -> bool {
-        self.router.is_none()
+        self.router.is_none() && self.compression.is_none()
     }
 }

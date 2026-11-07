@@ -61,7 +61,7 @@ We hope that this guide has been helpful in explaining how you can contribute to
 ```bash
 cargo fmt --check                # rustfmt; CI-enforced
 cargo clippy --all-targets -- -D warnings
-cargo test --features "async,auth,batch,config,distributed-rate-limit,enterprise,env_logger,high-perf,http2,http3-profile,multi-tenant,autotune,observability,optimized,streaming,tls" --lib
+cargo test --features "async,auth,batch,compression,config,distributed-rate-limit,enterprise,env_logger,high-perf,http2,http3-profile,multi-tenant,autotune,observability,optimized,streaming,tls" --lib
 ```
 
 The full feature matrix above is what CI runs. Skipping `multi-tenant` and `autotune` reproduces the historical `forbid(unsafe_code)` build failures — those features now build cleanly under the v0.0.5 `deny + targeted allow` policy.

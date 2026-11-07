@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
+mod compression;
 mod conditional;
 mod routing;
 

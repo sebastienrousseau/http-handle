@@ -72,6 +72,11 @@ pub struct Route {
     pub priority: i32,
     /// Directory served for requests that match this route.
     pub document_root: PathBuf,
+    /// `Some(false)` serves this route uncompressed whatever the
+    /// server's [`CompressionPolicy`](crate::compression::CompressionPolicy);
+    /// `None` or `Some(true)` follows the server.
+    #[serde(default)]
+    pub compression: Option<bool>,
 }
 
 impl Route {
@@ -89,6 +94,7 @@ impl Route {
             headers: Vec::new(),
             priority: 0,
             document_root: document_root.into(),
+            compression: None,
         }
     }
 
@@ -117,6 +123,13 @@ impl Route {
     #[must_use]
     pub fn priority(mut self, priority: i32) -> Self {
         self.priority = priority;
+        self
+    }
+
+    /// Switches compression on or off for this route.
+    #[must_use]
+    pub fn compression(mut self, enabled: bool) -> Self {
+        self.compression = Some(enabled);
         self
     }
 
@@ -257,6 +270,8 @@ pub(crate) struct RouteTarget<'a> {
     pub(crate) document_root: &'a Path,
     /// The route's canonicalised document root.
     pub(crate) canonical_root: &'a Path,
+    /// The route's compression override.
+    pub(crate) compression: Option<bool>,
 }
 
 impl Router {
@@ -328,6 +343,7 @@ impl Router {
             request: routed,
             document_root: &route.document_root,
             canonical_root: &self.canonical_roots[index],
+            compression: route.compression,
         })
     }
 }

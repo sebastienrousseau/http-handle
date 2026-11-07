@@ -84,6 +84,8 @@ pub mod protocol_state;
 
 pub mod routing;
 
+pub mod compression;
+
 mod policy;
 
 mod conditional;

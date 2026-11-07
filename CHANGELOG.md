@@ -29,6 +29,26 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
   and `Cache-Control`, and is answered before the file body is read.
   The `high-perf` fast path hands conditional requests to the full
   pipeline.
+- Compression policy (`http_handle::compression`), set with
+  `ServerBuilder::compression_policy`. It can switch compression off,
+  skip files below `min_size_bytes` (default 1024) or outside
+  `compressible_types`, and, with the new `compression` feature,
+  gzip eligible files on the fly when no precompressed sibling exists
+  (never for `Range` requests). `Route::compression(false)` turns it
+  off for one route. Every decision is counted: `compression::stats()`
+  returns the counters and `/metrics` prints
+  `http_handle_compression_total{outcome="..."}`. Without a policy the
+  server behaves as before.
+- New optional dependency `flate2` (feature `compression`), the
+  pure-Rust backend, for on-the-fly gzip.
+
+### Changed
+
+- `Accept-Encoding` is parsed with quality values: `gzip;q=0` no
+  longer selects a `.gz` sibling, and `*` is honoured. It was a
+  substring match before.
+- HEAD responses are built through the same path as GET, so they
+  carry the same headers under routing and the compression policy.
 
 ## [0.0.11] - 2026-11-07
 
