@@ -54,7 +54,7 @@ fn baseline_blocks_common_attacks() {
         &[("User-Agent", "${jndi:ldap://x}")],
     );
     assert_eq!(respond(&server, &jndi).status_code, 403);
-    assert!(stats().blocked >= before + attacks.len() + 1);
+    assert!(stats().blocked > before + attacks.len());
 }
 
 #[test]
