@@ -4,6 +4,7 @@
 //! Optional request policies a [`Server`](crate::Server) applies to
 //! every request, whichever frontend parsed it.
 
+use crate::abuse::AbuseGuard;
 use crate::compression::CompressionPolicy;
 use crate::routing::Router;
 use crate::waf::WafPolicy;
@@ -21,6 +22,8 @@ pub(crate) struct RequestPolicies {
     pub(crate) compression: Option<CompressionPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) waf: Option<WafPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) abuse: Option<AbuseGuard>,
 }
 
 impl RequestPolicies {
@@ -30,5 +33,6 @@ impl RequestPolicies {
         self.router.is_none()
             && self.compression.is_none()
             && self.waf.is_none()
+            && self.abuse.is_none()
     }
 }

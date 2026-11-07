@@ -88,6 +88,8 @@ pub mod compression;
 
 pub mod waf;
 
+pub mod abuse;
+
 mod policy;
 
 mod conditional;

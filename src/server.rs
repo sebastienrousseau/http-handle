@@ -11,6 +11,7 @@
 //! The primary entrypoints are [`Server`] and [`ServerBuilder`].
 //!
 
+use crate::abuse::{self, AbuseError, AbuseGuard, AbusePolicy};
 use crate::compression::{self, CompressionPolicy, Encoding};
 use crate::conditional::{
     format_http_date, is_not_modified, not_modified_response,
@@ -336,6 +337,19 @@ impl ServerBuilder {
     pub fn waf(mut self, policy: WafPolicy) -> Self {
         self.policies.waf = Some(policy);
         self
+    }
+
+    /// Sets burst, route-quota and global limits. See [`crate::abuse`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AbuseError`] when [`AbusePolicy::validate`] fails.
+    pub fn abuse_policy(
+        mut self,
+        policy: AbusePolicy,
+    ) -> Result<Self, AbuseError> {
+        self.policies.abuse = Some(AbuseGuard::try_from(policy)?);
+        Ok(self)
     }
 
     /// Finalizes builder state into a [`Server`].
@@ -1179,6 +1193,11 @@ impl Server {
         self.policies.waf.as_ref()
     }
 
+    /// Returns the abuse policy, if one is set.
+    pub fn abuse_policy(&self) -> Option<&AbusePolicy> {
+        self.policies.abuse.as_ref().map(AbuseGuard::policy)
+    }
+
     /// Whether any request policy is configured. Fast paths that skip
     /// [`build_response_for_request`] must not run when this is true.
     #[cfg(feature = "high-perf")]
@@ -1414,7 +1433,7 @@ fn build_response_for_stream(
             }
             (
                 build_response_for_request_with_metrics(
-                    server, &request,
+                    server, &request, peer_ip,
                 ),
                 policy,
             )
@@ -1430,13 +1449,34 @@ fn build_response_for_stream(
 ///
 /// This is shared by protocol-specific frontends (for example HTTP/1 and HTTP/2)
 /// to keep behavior consistent across server entrypoints.
+///
+/// `client` is the peer address when the frontend knows it; the abuse
+/// policy only applies to requests with one.
 pub(crate) fn build_response_for_request_with_metrics(
     server: &Server,
     request: &Request,
+    client: Option<IpAddr>,
 ) -> Response {
-    let response = build_response_for_request(server, request);
+    let response = screen_abuse(server, request, client)
+        .unwrap_or_else(|| build_response_for_request(server, request));
     record_metrics(&response);
     response
+}
+
+/// The refusal for `request` when the abuse policy limits `client`.
+fn screen_abuse(
+    server: &Server,
+    request: &Request,
+    client: Option<IpAddr>,
+) -> Option<Response> {
+    let guard = server.policies.abuse.as_ref()?;
+    let route = server
+        .router()
+        .and_then(|router| router.select(request))
+        .map(|route| route.name.as_str());
+    let event = guard.check(client?, route)?;
+    abuse::record(&event);
+    Some(apply_response_policies(event.response(), server, request))
 }
 
 /// Builds a response for an already parsed request and applies server policies.
@@ -1537,7 +1577,9 @@ pub(crate) fn generate_metrics_response() -> Response {
         METRIC_RESPONSES_4XX.load(Ordering::Relaxed),
         METRIC_RESPONSES_5XX.load(Ordering::Relaxed),
         METRIC_RATE_LIMITED.load(Ordering::Relaxed),
-        compression::metrics_lines() + &waf::metrics_lines(),
+        compression::metrics_lines()
+            + &waf::metrics_lines()
+            + &abuse::metrics_lines(),
     );
     let mut response = Response::new(200, "OK", body.into_bytes());
     response.add_header("Content-Type", "text/plain; version=0.0.3");

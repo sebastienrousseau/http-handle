@@ -52,6 +52,18 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
   headers. Rules with an empty or duplicate id, a nameless header
   target or an invalid pattern are rejected, including when
   deserialised. The WAF runs before routing, on every frontend.
+- Abuse protection (`http_handle::abuse`), set with
+  `ServerBuilder::abuse_policy`, which validates the policy. An
+  `AbusePolicy` sets a per-client burst limit, per-client quotas for
+  named routes, and a global limit that sheds untrusted clients with
+  503 while clients in `trusted` (addresses or CIDR blocks) are still
+  served. Bursts and quotas answer 429. Routes in `exempt_routes`
+  skip every check. Each refusal carries `Retry-After`, logs a `warn`
+  line with the reason, scope and client, and is counted in
+  `abuse::stats()` and `/metrics` (`http_handle_abuse_total`). The
+  HTTP/1, HTTP/2 and `high-perf` frontends all pass the client
+  address, so the policy applies to each; the existing per-minute
+  rate limit is unchanged.
 - New optional dependency `flate2` (feature `compression`), the
   pure-Rust backend, for on-the-fly gzip.
 

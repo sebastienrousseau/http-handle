@@ -67,6 +67,7 @@ HTTP Handle is a lightweight static-file HTTP server library. Start with `Server
 | **Compression policy** (thresholds, types, per-route off, metrics) | yes | — |
 | **On-the-fly gzip** under the compression policy | opt-in | `compression` |
 | **Baseline WAF** (block or report-only rules, logged and counted) | yes | — |
+| **Abuse protection** (per-client bursts, route quotas, global shedding that spares trusted clients) | yes | — |
 | **Conditional GET** (`ETag`, `Last-Modified`, `If-None-Match`, `If-Modified-Since`) | yes | — |
 | **`LanguageDetector`** (built-in + custom regex patterns) | yes | — |
 | **Async runtime helpers** + async server (`start_async`) | opt-in | `async` |
