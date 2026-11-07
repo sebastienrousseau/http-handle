@@ -6,7 +6,7 @@
 [package]
 # General project metadata
 name = "http-handle"                        # The name of the library
-version = "0.0.11"                          # Current version of the crate
+version = "0.0.12"                          # Current version of the crate
 authors = ["HTTP Handle Contributors"]      # Library contributors (auto-generated if not defined)
 edition = "2024"                            # Rust edition
 rust-version = "1.89.0"                     # Minimum supported Rust version
@@ -59,6 +59,7 @@ libc = { version = "0.2", optional = true }        # Unix sendfile support
 notify = { version = "8.2", optional = true }      # Config hot-reload file watcher
 arc-swap = { version = "1.9", optional = true }    # Lock-free hot config swaps
 toml = { version = "1.0", optional = true }        # Profile config loading
+flate2 = { version = "1.1", optional = true }      # Dynamic gzip for the compression policy (pure-Rust miniz_oxide backend)
 
 # -----------------------------------------------------------------------------
 # Library Configuration
@@ -300,6 +301,7 @@ http3-profile = []                          # HTTP/3 production profile and ALPN
 distributed-rate-limit = []                 # Distributed rate-limit backends and adapters
 multi-tenant = []                           # Tenant-isolated config and secret providers
 autotune = ["high-perf"]                    # Runtime auto-tuning for host resource profiles
+compression = ["dep:flate2"]                # On-the-fly gzip under a CompressionPolicy
 
 # -----------------------------------------------------------------------------
 # Documentation Configuration

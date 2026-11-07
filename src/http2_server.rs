@@ -99,6 +99,7 @@ async fn handle_h2_connection(
 ) -> Result<(), ServerError> {
     // Disable Nagle — HTTP/2 frame flushing should not wait for delayed ACK.
     let _ = stream.set_nodelay(true);
+    let client = stream.peer_addr().ok().map(|addr| addr.ip());
     let mut connection = h2::server::handshake(stream)
         .await
         .map_err(h2_handshake_err)?;
@@ -109,6 +110,7 @@ async fn handle_h2_connection(
         let response = build_response_for_request_with_metrics(
             &server,
             &parsed_request,
+            client,
         );
         send_h2_response(respond, response)?;
     }

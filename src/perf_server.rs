@@ -222,6 +222,7 @@ async fn handle_async_connection(
     // Disable Nagle so header+body are not held by the kernel waiting
     // for a delayed ACK on small payloads.
     let _ = stream.set_nodelay(true);
+    let client = stream.peer_addr().ok().map(|addr| addr.ip());
     let request_timeout =
         server.request_timeout().unwrap_or(Duration::from_secs(30));
 
@@ -274,8 +275,9 @@ async fn handle_async_connection(
             continue;
         }
 
-        let mut response =
-            build_response_for_request_with_metrics(server, &request);
+        let mut response = build_response_for_request_with_metrics(
+            server, &request, client,
+        );
         response.set_connection_header(policy.header_value());
         if send_response_async(&mut stream, &response).await.is_err() {
             return Ok(());
@@ -513,7 +515,13 @@ async fn try_send_static_file_fast_path(
     if request.method() != "GET" && request.method() != "HEAD" {
         return Ok(false);
     }
-    if request.header("range").is_some() {
+    // Routing and other request policies live in the full pipeline,
+    // and so do conditional requests: this path sends no validators.
+    if server.has_request_policies()
+        || request.header("range").is_some()
+        || request.header("if-none-match").is_some()
+        || request.header("if-modified-since").is_some()
+    {
         return Ok(false);
     }
 

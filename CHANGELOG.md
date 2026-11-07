@@ -6,6 +6,77 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [0.0.12] - 2026-11-07
+
+### Added
+
+- Layer-7 routing (`http_handle::routing`). A `Router` of `Route`s,
+  set with `ServerBuilder::router`, picks a document root by host,
+  path prefix, method and exact header values, and serves the request
+  from it with the prefix removed. Routes are tried by priority, then
+  specificity (host, longer prefix, more headers, a method set). A
+  request that matches no route gets a plain 404, never the default
+  root. `Router::new` rejects empty or duplicate names, prefixes
+  without a leading `/`, invalid methods, empty hosts, missing
+  document roots and ambiguous routes (same priority and
+  constraints); a deserialised router is validated the same way. The
+  `high-perf` fast path steps aside when a router is configured.
+- Conditional requests. File responses carry `Last-Modified`;
+  `If-Modified-Since` returns `304 Not Modified` when the file is not
+  newer. `If-None-Match` now accepts a list of tags, `*`, and the weak
+  comparison (`W/"x"` matches `"x"`), and takes precedence over
+  `If-Modified-Since`. A 304 keeps `ETag`, `Last-Modified`, `Vary`
+  and `Cache-Control`, and is answered before the file body is read.
+  The `high-perf` fast path hands conditional requests to the full
+  pipeline.
+- Compression policy (`http_handle::compression`), set with
+  `ServerBuilder::compression_policy`. It can switch compression off,
+  skip files below `min_size_bytes` (default 1024) or outside
+  `compressible_types`, and, with the new `compression` feature,
+  gzip eligible files on the fly when no precompressed sibling exists
+  (never for `Range` requests). `Route::compression(false)` turns it
+  off for one route. Every decision is counted: `compression::stats()`
+  returns the counters and `/metrics` prints
+  `http_handle_compression_total{outcome="..."}`. Without a policy the
+  server behaves as before.
+- Baseline web application firewall (`http_handle::waf`), set with
+  `ServerBuilder::waf`. A `WafPolicy` holds rules, each a
+  case-insensitive regex over the request target (raw and
+  percent-decoded), the method, one header or every header. The first
+  match either blocks the request with 403 (`WafMode::Block`) or lets
+  it through (`WafMode::ReportOnly`); both log a `warn` line naming
+  the rule, target and action, and are counted in `waf::stats()` and
+  `/metrics` (`http_handle_waf_total{action="..."}`).
+  `WafPolicy::baseline` covers path traversal, null bytes, VCS and
+  `.env` files, script, SQL and shell injection, and `${jndi:` in
+  headers. Rules with an empty or duplicate id, a nameless header
+  target or an invalid pattern are rejected, including when
+  deserialised. The WAF runs before routing, on every frontend.
+- Abuse protection (`http_handle::abuse`), set with
+  `ServerBuilder::abuse_policy`, which validates the policy. An
+  `AbusePolicy` sets a per-client burst limit, per-client quotas for
+  named routes, and a global limit that sheds untrusted clients with
+  503 while clients in `trusted` (addresses or CIDR blocks) are still
+  served. Bursts and quotas answer 429. Routes in `exempt_routes`
+  skip every check. Each refusal carries `Retry-After`, logs a `warn`
+  line with the reason, scope and client, and is counted in
+  `abuse::stats()` and `/metrics` (`http_handle_abuse_total`). The
+  HTTP/1, HTTP/2 and `high-perf` frontends all pass the client
+  address, so the policy applies to each; the existing per-minute
+  rate limit is unchanged. The counter table is capped: past 65,536
+  live windows it drops expired ones, and resets (with a `warn` line)
+  if a flood of distinct clients keeps it full.
+- New optional dependency `flate2` (feature `compression`), the
+  pure-Rust backend, for on-the-fly gzip.
+
+### Changed
+
+- `Accept-Encoding` is parsed with quality values: `gzip;q=0` no
+  longer selects a `.gz` sibling, and `*` is honoured. It was a
+  substring match before.
+- HEAD responses are built through the same path as GET, so they
+  carry the same headers under routing and the compression policy.
+
 ## [0.0.11] - 2026-11-07
 
 ### Security

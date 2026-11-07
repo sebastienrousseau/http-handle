@@ -8,6 +8,7 @@
 // `deny` rather than `forbid` so those targeted exceptions actually
 // compile under Rust 2024.
 #![deny(unsafe_code)]
+#![allow(dead_code)]
 // Rustdoc hygiene: catch broken intra-doc links, bare URLs, and
 // unindented examples at doc-build time so doc rot is loud rather
 // than silent. `missing_docs` is already enforced by the rust lint
@@ -81,6 +82,18 @@ pub mod runtime_autotune;
 
 pub mod protocol_state;
 
+pub mod routing;
+
+pub mod compression;
+
+pub mod waf;
+
+pub mod abuse;
+
+mod policy;
+
+mod conditional;
+
 #[cfg(feature = "enterprise")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 pub mod enterprise;
@@ -92,6 +105,9 @@ pub use language::{Language, LanguageDetector};
 pub use server::{
     ConnectionPool, Server, ServerBuilder, ShutdownSignal, ThreadPool,
 };
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(all(test, miri))]
 mod miri_smoke {

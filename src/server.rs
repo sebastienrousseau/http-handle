@@ -11,9 +11,17 @@
 //! The primary entrypoints are [`Server`] and [`ServerBuilder`].
 //!
 
+use crate::abuse::{self, AbuseError, AbuseGuard, AbusePolicy};
+use crate::compression::{self, CompressionPolicy, Encoding};
+use crate::conditional::{
+    format_http_date, is_not_modified, not_modified_response,
+};
 use crate::error::ServerError;
+use crate::policy::RequestPolicies;
 use crate::request::Request;
 use crate::response::Response;
+use crate::routing::{Router, no_route_response};
+use crate::waf::{self, WafAction, WafPolicy};
 use commons::path::{is_within, safe_join};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
@@ -101,6 +109,12 @@ pub struct Server {
     /// to N × file_size on N concurrent requests. None falls back to
     /// `DEFAULT_MAX_BUFFERED_BODY_BYTES` (64 MiB).
     max_buffered_body_bytes: Option<u64>,
+    /// Optional routing, compression and request-screening policies.
+    #[serde(
+        default,
+        skip_serializing_if = "RequestPolicies::is_empty"
+    )]
+    policies: RequestPolicies,
 }
 
 /// Builds a [`Server`] with optional policy and timeout configuration.
@@ -144,6 +158,7 @@ pub struct ServerBuilder {
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
     max_buffered_body_bytes: Option<u64>,
+    policies: RequestPolicies,
 }
 
 impl ServerBuilder {
@@ -301,6 +316,42 @@ impl ServerBuilder {
         self
     }
 
+    /// Routes requests to document roots by host, path, method and
+    /// headers. See [`crate::routing`].
+    pub fn router(mut self, router: Router) -> Self {
+        self.policies.router = Some(router);
+        self
+    }
+
+    /// Sets the response compression policy. See [`crate::compression`].
+    pub fn compression_policy(
+        mut self,
+        policy: CompressionPolicy,
+    ) -> Self {
+        self.policies.compression = Some(policy);
+        self
+    }
+
+    /// Screens every request with a WAF rule set before it is routed
+    /// or served. See [`crate::waf`].
+    pub fn waf(mut self, policy: WafPolicy) -> Self {
+        self.policies.waf = Some(policy);
+        self
+    }
+
+    /// Sets burst, route-quota and global limits. See [`crate::abuse`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AbuseError`] when [`AbusePolicy::validate`] fails.
+    pub fn abuse_policy(
+        mut self,
+        policy: AbusePolicy,
+    ) -> Result<Self, AbuseError> {
+        self.policies.abuse = Some(AbuseGuard::try_from(policy)?);
+        Ok(self)
+    }
+
     /// Finalizes builder state into a [`Server`].
     ///
     /// # Examples
@@ -346,6 +397,7 @@ impl ServerBuilder {
             rate_limit_per_minute: self.rate_limit_per_minute,
             static_cache_ttl_secs: self.static_cache_ttl_secs,
             max_buffered_body_bytes: self.max_buffered_body_bytes,
+            policies: self.policies,
         })
     }
 }
@@ -640,6 +692,7 @@ impl Server {
             rate_limit_per_minute: None,
             static_cache_ttl_secs: None,
             max_buffered_body_bytes: None,
+            policies: RequestPolicies::default(),
         }
     }
 
@@ -1124,6 +1177,38 @@ impl Server {
         self.max_buffered_body_bytes
             .unwrap_or(DEFAULT_MAX_BUFFERED_BODY_BYTES)
     }
+
+    /// Returns the configured router, if any.
+    pub fn router(&self) -> Option<&Router> {
+        self.policies.router.as_ref()
+    }
+
+    /// Returns the compression policy, if one is set.
+    pub fn compression_policy(&self) -> Option<&CompressionPolicy> {
+        self.policies.compression.as_ref()
+    }
+
+    /// Returns the WAF policy, if one is set.
+    pub fn waf(&self) -> Option<&WafPolicy> {
+        self.policies.waf.as_ref()
+    }
+
+    /// Returns the abuse policy, if one is set.
+    pub fn abuse_policy(&self) -> Option<&AbusePolicy> {
+        self.policies.abuse.as_ref().map(AbuseGuard::policy)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn policies_for_test(&self) -> &RequestPolicies {
+        &self.policies
+    }
+
+    /// Whether any request policy is configured. Fast paths that skip
+    /// [`build_response_for_request`] must not run when this is true.
+    #[cfg(feature = "high-perf")]
+    pub(crate) fn has_request_policies(&self) -> bool {
+        !self.policies.is_empty()
+    }
 }
 
 /// Sends a 503 Service Unavailable response when connection pool is exhausted.
@@ -1353,7 +1438,7 @@ fn build_response_for_stream(
             }
             (
                 build_response_for_request_with_metrics(
-                    server, &request,
+                    server, &request, peer_ip,
                 ),
                 policy,
             )
@@ -1369,13 +1454,34 @@ fn build_response_for_stream(
 ///
 /// This is shared by protocol-specific frontends (for example HTTP/1 and HTTP/2)
 /// to keep behavior consistent across server entrypoints.
+///
+/// `client` is the peer address when the frontend knows it; the abuse
+/// policy only applies to requests with one.
 pub(crate) fn build_response_for_request_with_metrics(
     server: &Server,
     request: &Request,
+    client: Option<IpAddr>,
 ) -> Response {
-    let response = build_response_for_request(server, request);
+    let response = screen_abuse(server, request, client)
+        .unwrap_or_else(|| build_response_for_request(server, request));
     record_metrics(&response);
     response
+}
+
+/// The refusal for `request` when the abuse policy limits `client`.
+fn screen_abuse(
+    server: &Server,
+    request: &Request,
+    client: Option<IpAddr>,
+) -> Option<Response> {
+    let guard = server.policies.abuse.as_ref()?;
+    let route = server
+        .router()
+        .and_then(|router| router.select(request))
+        .map(|route| route.name.as_str());
+    let event = guard.check(client?, route)?;
+    abuse::record(&event);
+    Some(apply_response_policies(event.response(), server, request))
 }
 
 /// Builds a response for an already parsed request and applies server policies.
@@ -1383,17 +1489,64 @@ pub(crate) fn build_response_for_request(
     server: &Server,
     request: &Request,
 ) -> Response {
-    let generated = match request.method() {
-        "GET" => generate_response_with_cache(
-            request,
-            &server.document_root,
-            &server.containment_root(),
-            server.static_cache_ttl_secs,
-            server.max_buffered_body_bytes(),
-        ),
-        "HEAD" => {
-            generate_head_response(request, &server.document_root)
+    if let Some(event) = server.waf().and_then(|w| w.inspect(request)) {
+        waf::record(&event);
+        if event.action == WafAction::Blocked {
+            let denied =
+                ServerError::forbidden("Request blocked by policy");
+            return response_from_error(&denied, &server.document_root);
         }
+    }
+    let Some(router) = server.policies.router.as_ref() else {
+        let root = server.containment_root();
+        let target = (server.document_root.as_path(), root.as_ref());
+        return serve_static(server, request, target, None);
+    };
+    match router.resolve(request) {
+        Some(target) => serve_static(
+            server,
+            &target.request,
+            (target.document_root, target.canonical_root),
+            target.compression,
+        ),
+        None => apply_response_policies(
+            no_route_response(),
+            server,
+            request,
+        ),
+    }
+}
+
+/// Serves `request` from `(document_root, canonical_root)`;
+/// `route_compression` is the matched route's override, if any.
+fn serve_static(
+    server: &Server,
+    request: &Request,
+    (document_root, canonical_root): (&Path, &Path),
+    route_compression: Option<bool>,
+) -> Response {
+    let options = ServeOptions {
+        cache_ttl_secs: server.static_cache_ttl_secs,
+        max_buffered_body_bytes: server.max_buffered_body_bytes(),
+        compression: compression::Mode::new(
+            server.compression_policy(),
+            route_compression,
+        ),
+    };
+    let generated = match request.method() {
+        "GET" => generate_file_response(
+            request,
+            document_root,
+            canonical_root,
+            options,
+        ),
+        "HEAD" => generate_file_response(
+            request,
+            document_root,
+            canonical_root,
+            options,
+        )
+        .map(head_of),
         "OPTIONS" => generate_options_response(request),
         _ => Ok(generate_method_not_allowed_response()),
     };
@@ -1401,10 +1554,16 @@ pub(crate) fn build_response_for_request(
         Ok(response) => {
             apply_response_policies(response, server, request)
         }
-        Err(error) => {
-            response_from_error(&error, &server.document_root)
-        }
+        Err(error) => response_from_error(&error, document_root),
     }
+}
+
+/// Per-request settings for the static-file path.
+#[derive(Clone, Copy, Debug)]
+struct ServeOptions<'a> {
+    cache_ttl_secs: Option<u64>,
+    max_buffered_body_bytes: u64,
+    compression: compression::Mode<'a>,
 }
 
 fn record_metrics(response: &Response) {
@@ -1416,13 +1575,16 @@ fn record_metrics(response: &Response) {
     }
 }
 
-fn generate_metrics_response() -> Response {
+pub(crate) fn generate_metrics_response() -> Response {
     let body = format!(
-        "http_handle_requests_total {}\nhttp_handle_responses_4xx_total {}\nhttp_handle_responses_5xx_total {}\nhttp_handle_rate_limited_total {}\n",
+        "http_handle_requests_total {}\nhttp_handle_responses_4xx_total {}\nhttp_handle_responses_5xx_total {}\nhttp_handle_rate_limited_total {}\n{}",
         METRIC_REQUESTS_TOTAL.load(Ordering::Relaxed),
         METRIC_RESPONSES_4XX.load(Ordering::Relaxed),
         METRIC_RESPONSES_5XX.load(Ordering::Relaxed),
         METRIC_RATE_LIMITED.load(Ordering::Relaxed),
+        compression::metrics_lines()
+            + &waf::metrics_lines()
+            + &abuse::metrics_lines(),
     );
     let mut response = Response::new(200, "OK", body.into_bytes());
     response.add_header("Content-Type", "text/plain; version=0.0.3");
@@ -1511,6 +1673,25 @@ fn generate_response_with_cache(
     cache_ttl_secs: Option<u64>,
     max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
+    let options = ServeOptions {
+        cache_ttl_secs,
+        max_buffered_body_bytes,
+        compression: compression::Mode::Legacy,
+    };
+    generate_file_response(
+        request,
+        document_root,
+        canonical_root,
+        options,
+    )
+}
+
+fn generate_file_response(
+    request: &Request,
+    document_root: &Path,
+    canonical_root: &Path,
+    options: ServeOptions<'_>,
+) -> Result<Response, ServerError> {
     // Lexical containment first: refuses absolute paths and any `..`
     // that would climb above the root. Request paths are not
     // percent-decoded, so `%2e%2e` is an ordinary name here.
@@ -1540,13 +1721,7 @@ fn generate_response_with_cache(
     } else if !path.is_file() {
         return generate_404_response(document_root);
     }
-    serve_file_response(
-        request,
-        &path,
-        canonical_root,
-        cache_ttl_secs,
-        max_buffered_body_bytes,
-    )
+    serve_file_response(request, &path, canonical_root, options)
 }
 
 /// Whether the existing `path` resolves, after following symlinks, to a
@@ -1581,7 +1756,10 @@ pub(crate) fn negotiate_precompressed_variant(
         return (path.to_path_buf(), None);
     };
     for (extension, tokens, encoding) in VARIANTS {
-        if !tokens.iter().any(|token| accept.contains(token)) {
+        if !tokens
+            .iter()
+            .any(|token| compression::accepts(accept, token))
+        {
             continue;
         }
         let candidate =
@@ -1599,32 +1777,79 @@ fn serve_file_response(
     request: &Request,
     path: &Path,
     canonical_root: &Path,
-    cache_ttl_secs: Option<u64>,
-    max_buffered_body_bytes: u64,
+    options: ServeOptions<'_>,
 ) -> Result<Response, ServerError> {
-    let (serving_path, content_encoding) =
-        negotiate_precompressed_variant(
-            path,
-            request.header("accept-encoding"),
-            canonical_root,
-        );
-
-    let contents =
-        read_buffered_body(&serving_path, max_buffered_body_bytes)?;
     let metadata = fs::metadata(path)?;
-    let etag = compute_etag(&metadata);
-    if request
-        .header("if-none-match")
-        .is_some_and(|candidate| candidate == &*etag)
-    {
-        let mut response =
-            Response::new(304, "NOT MODIFIED", Vec::new());
-        response.add_header("ETag", &etag);
-        return Ok(response);
-    }
-
     let content_type = get_content_type(path);
-    let mut response = if let Some((start, end)) =
+    let encoding = compression::select(
+        options.compression,
+        request,
+        path,
+        canonical_root,
+        content_type,
+        metadata.len(),
+    );
+    let etag = compute_etag(&metadata);
+    let modified = metadata.modified().ok();
+    let last_modified = modified.and_then(format_http_date);
+    if is_not_modified(request, &etag, modified) {
+        // Answered before the body is read.
+        return Ok(not_modified_response(
+            &etag,
+            last_modified.as_deref(),
+            encoding.header().is_some(),
+        ));
+    }
+    let contents = read_representation(
+        path,
+        &encoding,
+        options.max_buffered_body_bytes,
+    )?;
+    let mut response = body_response(request, contents);
+    response.add_header("Content-Type", content_type);
+    response.add_header("ETag", &etag);
+    if let Some(date) = &last_modified {
+        response.add_header("Last-Modified", date);
+    }
+    response.add_header("Accept-Ranges", "bytes");
+    if let Some(coding) = encoding.header() {
+        response.add_header("Content-Encoding", coding);
+        response.add_header("Vary", "Accept-Encoding");
+    }
+    if let Some(ttl) = options.cache_ttl_secs {
+        response.add_header(
+            "Cache-Control",
+            &format!("public, max-age={ttl}"),
+        );
+    }
+    Ok(response)
+}
+
+/// The body for `encoding` of the file at `path`: a precompressed
+/// sibling as stored, or the file itself, gzipped when asked.
+fn read_representation(
+    path: &Path,
+    encoding: &Encoding,
+    max_buffered_body_bytes: u64,
+) -> Result<Vec<u8>, ServerError> {
+    match encoding {
+        Encoding::Precompressed(sibling, _) => {
+            read_buffered_body(sibling, max_buffered_body_bytes)
+        }
+        Encoding::Identity => {
+            read_buffered_body(path, max_buffered_body_bytes)
+        }
+        Encoding::Gzip => {
+            let plain =
+                read_buffered_body(path, max_buffered_body_bytes)?;
+            Ok(compression::gzip(&plain)?)
+        }
+    }
+}
+
+/// `206` for a satisfiable `Range`, otherwise `200` with the whole body.
+fn body_response(request: &Request, contents: Vec<u8>) -> Response {
+    if let Some((start, end)) =
         parse_range_header(request.header("range"), contents.len())
     {
         let body = contents[start..=end].to_vec();
@@ -1636,22 +1861,7 @@ fn serve_file_response(
         partial
     } else {
         Response::new(200, "OK", contents)
-    };
-
-    response.add_header("Content-Type", content_type);
-    response.add_header("ETag", &etag);
-    response.add_header("Accept-Ranges", "bytes");
-    if let Some(encoding) = content_encoding {
-        response.add_header("Content-Encoding", encoding);
-        response.add_header("Vary", "Accept-Encoding");
     }
-    if let Some(ttl) = cache_ttl_secs {
-        response.add_header(
-            "Cache-Control",
-            &format!("public, max-age={ttl}"),
-        );
-    }
-    Ok(response)
 }
 
 /// Reads `path` into memory unless it is larger than
@@ -1798,9 +2008,11 @@ fn generate_head_response(
     request: &Request,
     document_root: &Path,
 ) -> Result<Response, ServerError> {
-    // Generate the full response as if it were a GET request
-    let full_response = generate_response(request, document_root)?;
+    generate_response(request, document_root).map(head_of)
+}
 
+/// The GET response with its body removed and `Content-Length` kept.
+fn head_of(full_response: Response) -> Response {
     // Create a new response with the same status and headers but empty body
     let mut head_response = Response::new(
         full_response.status_code,
@@ -1816,8 +2028,7 @@ fn generate_head_response(
     // Add Content-Length header to match what would be sent in GET response
     let content_length = full_response.body.len().to_string();
     head_response.add_header("Content-Length", &content_length);
-
-    Ok(head_response)
+    head_response
 }
 
 /// Generates an HTTP OPTIONS response indicating supported methods.

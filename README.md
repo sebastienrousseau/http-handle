@@ -13,7 +13,7 @@
   <a href="https://crates.io/crates/http-handle"><img src="https://img.shields.io/crates/v/http-handle.svg?style=for-the-badge&color=fc8d62&logo=rust" alt="Crates.io" /></a>
   <a href="https://docs.rs/http-handle"><img src="https://img.shields.io/docsrs/http-handle?style=for-the-badge&logo=docs.rs&label=docs.rs" alt="Docs.rs" /></a>
   <a href="https://codecov.io/gh/sebastienrousseau/http-handle"><img src="https://img.shields.io/codecov/c/github/sebastienrousseau/http-handle?style=for-the-badge&logo=codecov" alt="Coverage" /></a>
-  <a href="https://lib.rs/crates/http-handle"><img src="https://img.shields.io/badge/lib.rs-v0.0.11-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
+  <a href="https://lib.rs/crates/http-handle"><img src="https://img.shields.io/badge/lib.rs-v0.0.12-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
 </p>
 
 ---
@@ -28,7 +28,7 @@ Or add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-http-handle = "0.0.11"
+http-handle = "0.0.12"
 ```
 
 You need [Rust](https://rustup.rs/) 1.89.0 or later. Works on macOS, Linux, and Windows.
@@ -63,6 +63,12 @@ HTTP Handle is a lightweight static-file HTTP server library. Start with `Server
 | **64 MiB cap on buffered response bodies** (OOM guard) | yes | — |
 | **Sharded rate limiter** (16-way) + **ETag LRU cache** | yes | — |
 | **Precompressed asset negotiation** (br / zstd / gzip) | yes | — |
+| **Layer-7 routing** (host / path / method / header to document root) | yes | — |
+| **Compression policy** (thresholds, types, per-route off, metrics) | yes | — |
+| **On-the-fly gzip** under the compression policy | opt-in | `compression` |
+| **Baseline WAF** (block or report-only rules, logged and counted) | yes | — |
+| **Abuse protection** (per-client bursts, route quotas, global shedding that spares trusted clients) | yes | — |
+| **Conditional GET** (`ETag`, `Last-Modified`, `If-None-Match`, `If-Modified-Since`) | yes | — |
 | **`LanguageDetector`** (built-in + custom regex patterns) | yes | — |
 | **Async runtime helpers** + async server (`start_async`) | opt-in | `async` |
 | **High-perf async server** (semaphore-bounded, sendfile) | opt-in | `high-perf` |
