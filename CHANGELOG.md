@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-11-07
+
 ### Security
 
 - Static-file serving now checks every file it reads against the
