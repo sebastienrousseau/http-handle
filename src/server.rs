@@ -20,6 +20,7 @@ use crate::policy::RequestPolicies;
 use crate::request::Request;
 use crate::response::Response;
 use crate::routing::{Router, no_route_response};
+use crate::waf::{self, WafAction, WafPolicy};
 use commons::path::{is_within, safe_join};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
@@ -327,6 +328,13 @@ impl ServerBuilder {
         policy: CompressionPolicy,
     ) -> Self {
         self.policies.compression = Some(policy);
+        self
+    }
+
+    /// Screens every request with a WAF rule set before it is routed
+    /// or served. See [`crate::waf`].
+    pub fn waf(mut self, policy: WafPolicy) -> Self {
+        self.policies.waf = Some(policy);
         self
     }
 
@@ -1166,6 +1174,11 @@ impl Server {
         self.policies.compression.as_ref()
     }
 
+    /// Returns the WAF policy, if one is set.
+    pub fn waf(&self) -> Option<&WafPolicy> {
+        self.policies.waf.as_ref()
+    }
+
     /// Whether any request policy is configured. Fast paths that skip
     /// [`build_response_for_request`] must not run when this is true.
     #[cfg(feature = "high-perf")]
@@ -1431,6 +1444,14 @@ pub(crate) fn build_response_for_request(
     server: &Server,
     request: &Request,
 ) -> Response {
+    if let Some(event) = server.waf().and_then(|w| w.inspect(request)) {
+        waf::record(&event);
+        if event.action == WafAction::Blocked {
+            let denied =
+                ServerError::forbidden("Request blocked by policy");
+            return response_from_error(&denied, &server.document_root);
+        }
+    }
     let Some(router) = server.policies.router.as_ref() else {
         let root = server.containment_root();
         let target = (server.document_root.as_path(), root.as_ref());
@@ -1516,7 +1537,7 @@ pub(crate) fn generate_metrics_response() -> Response {
         METRIC_RESPONSES_4XX.load(Ordering::Relaxed),
         METRIC_RESPONSES_5XX.load(Ordering::Relaxed),
         METRIC_RATE_LIMITED.load(Ordering::Relaxed),
-        compression::metrics_lines(),
+        compression::metrics_lines() + &waf::metrics_lines(),
     );
     let mut response = Response::new(200, "OK", body.into_bytes());
     response.add_header("Content-Type", "text/plain; version=0.0.3");

@@ -86,6 +86,8 @@ pub mod routing;
 
 pub mod compression;
 
+pub mod waf;
+
 mod policy;
 
 mod conditional;

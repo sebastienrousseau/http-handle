@@ -39,6 +39,19 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
   returns the counters and `/metrics` prints
   `http_handle_compression_total{outcome="..."}`. Without a policy the
   server behaves as before.
+- Baseline web application firewall (`http_handle::waf`), set with
+  `ServerBuilder::waf`. A `WafPolicy` holds rules, each a
+  case-insensitive regex over the request target (raw and
+  percent-decoded), the method, one header or every header. The first
+  match either blocks the request with 403 (`WafMode::Block`) or lets
+  it through (`WafMode::ReportOnly`); both log a `warn` line naming
+  the rule, target and action, and are counted in `waf::stats()` and
+  `/metrics` (`http_handle_waf_total{action="..."}`).
+  `WafPolicy::baseline` covers path traversal, null bytes, VCS and
+  `.env` files, script, SQL and shell injection, and `${jndi:` in
+  headers. Rules with an empty or duplicate id, a nameless header
+  target or an invalid pattern are rejected, including when
+  deserialised. The WAF runs before routing, on every frontend.
 - New optional dependency `flate2` (feature `compression`), the
   pure-Rust backend, for on-the-fly gzip.
 

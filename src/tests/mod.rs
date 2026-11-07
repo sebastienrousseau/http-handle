@@ -14,6 +14,7 @@ use tempfile::TempDir;
 mod compression;
 mod conditional;
 mod routing;
+mod waf;
 
 /// A request with the given method, path and headers.
 pub(crate) fn request(
