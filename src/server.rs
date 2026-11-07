@@ -12,8 +12,10 @@
 //!
 
 use crate::error::ServerError;
+use crate::policy::RequestPolicies;
 use crate::request::Request;
 use crate::response::Response;
+use crate::routing::{Router, no_route_response};
 use commons::path::{is_within, safe_join};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
@@ -101,6 +103,12 @@ pub struct Server {
     /// to N × file_size on N concurrent requests. None falls back to
     /// `DEFAULT_MAX_BUFFERED_BODY_BYTES` (64 MiB).
     max_buffered_body_bytes: Option<u64>,
+    /// Optional routing, compression and request-screening policies.
+    #[serde(
+        default,
+        skip_serializing_if = "RequestPolicies::is_empty"
+    )]
+    policies: RequestPolicies,
 }
 
 /// Builds a [`Server`] with optional policy and timeout configuration.
@@ -144,6 +152,7 @@ pub struct ServerBuilder {
     rate_limit_per_minute: Option<usize>,
     static_cache_ttl_secs: Option<u64>,
     max_buffered_body_bytes: Option<u64>,
+    policies: RequestPolicies,
 }
 
 impl ServerBuilder {
@@ -301,6 +310,13 @@ impl ServerBuilder {
         self
     }
 
+    /// Routes requests to document roots by host, path, method and
+    /// headers. See [`crate::routing`].
+    pub fn router(mut self, router: Router) -> Self {
+        self.policies.router = Some(router);
+        self
+    }
+
     /// Finalizes builder state into a [`Server`].
     ///
     /// # Examples
@@ -346,6 +362,7 @@ impl ServerBuilder {
             rate_limit_per_minute: self.rate_limit_per_minute,
             static_cache_ttl_secs: self.static_cache_ttl_secs,
             max_buffered_body_bytes: self.max_buffered_body_bytes,
+            policies: self.policies,
         })
     }
 }
@@ -640,6 +657,7 @@ impl Server {
             rate_limit_per_minute: None,
             static_cache_ttl_secs: None,
             max_buffered_body_bytes: None,
+            policies: RequestPolicies::default(),
         }
     }
 
@@ -1124,6 +1142,18 @@ impl Server {
         self.max_buffered_body_bytes
             .unwrap_or(DEFAULT_MAX_BUFFERED_BODY_BYTES)
     }
+
+    /// Returns the configured router, if any.
+    pub fn router(&self) -> Option<&Router> {
+        self.policies.router.as_ref()
+    }
+
+    /// Whether any request policy is configured. Fast paths that skip
+    /// [`build_response_for_request`] must not run when this is true.
+    #[cfg(feature = "high-perf")]
+    pub(crate) fn has_request_policies(&self) -> bool {
+        !self.policies.is_empty()
+    }
 }
 
 /// Sends a 503 Service Unavailable response when connection pool is exhausted.
@@ -1383,17 +1413,46 @@ pub(crate) fn build_response_for_request(
     server: &Server,
     request: &Request,
 ) -> Response {
+    let Some(router) = server.policies.router.as_ref() else {
+        let root = server.containment_root();
+        return serve_static(
+            server,
+            request,
+            &server.document_root,
+            &root,
+        );
+    };
+    match router.resolve(request) {
+        Some(target) => serve_static(
+            server,
+            &target.request,
+            target.document_root,
+            target.canonical_root,
+        ),
+        None => apply_response_policies(
+            no_route_response(),
+            server,
+            request,
+        ),
+    }
+}
+
+/// Serves `request` from `document_root`, contained in `canonical_root`.
+fn serve_static(
+    server: &Server,
+    request: &Request,
+    document_root: &Path,
+    canonical_root: &Path,
+) -> Response {
     let generated = match request.method() {
         "GET" => generate_response_with_cache(
             request,
-            &server.document_root,
-            &server.containment_root(),
+            document_root,
+            canonical_root,
             server.static_cache_ttl_secs,
             server.max_buffered_body_bytes(),
         ),
-        "HEAD" => {
-            generate_head_response(request, &server.document_root)
-        }
+        "HEAD" => generate_head_response(request, document_root),
         "OPTIONS" => generate_options_response(request),
         _ => Ok(generate_method_not_allowed_response()),
     };
@@ -1401,9 +1460,7 @@ pub(crate) fn build_response_for_request(
         Ok(response) => {
             apply_response_policies(response, server, request)
         }
-        Err(error) => {
-            response_from_error(&error, &server.document_root)
-        }
+        Err(error) => response_from_error(&error, document_root),
     }
 }
 

@@ -6,6 +6,22 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [0.0.12]
+
+### Added
+
+- Layer-7 routing (`http_handle::routing`). A `Router` of `Route`s,
+  set with `ServerBuilder::router`, picks a document root by host,
+  path prefix, method and exact header values, and serves the request
+  from it with the prefix removed. Routes are tried by priority, then
+  specificity (host, longer prefix, more headers, a method set). A
+  request that matches no route gets a plain 404, never the default
+  root. `Router::new` rejects empty or duplicate names, prefixes
+  without a leading `/`, invalid methods, empty hosts, missing
+  document roots and ambiguous routes (same priority and
+  constraints); a deserialised router is validated the same way. The
+  `high-perf` fast path steps aside when a router is configured.
+
 ## [0.0.11] - 2026-11-07
 
 ### Security

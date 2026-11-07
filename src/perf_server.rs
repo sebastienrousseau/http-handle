@@ -513,7 +513,10 @@ async fn try_send_static_file_fast_path(
     if request.method() != "GET" && request.method() != "HEAD" {
         return Ok(false);
     }
-    if request.header("range").is_some() {
+    // Routing and other request policies live in the full pipeline.
+    if server.has_request_policies()
+        || request.header("range").is_some()
+    {
         return Ok(false);
     }
 

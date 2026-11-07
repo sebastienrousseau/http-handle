@@ -81,6 +81,10 @@ pub mod runtime_autotune;
 
 pub mod protocol_state;
 
+pub mod routing;
+
+mod policy;
+
 #[cfg(feature = "enterprise")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enterprise")))]
 pub mod enterprise;
@@ -92,6 +96,9 @@ pub use language::{Language, LanguageDetector};
 pub use server::{
     ConnectionPool, Server, ServerBuilder, ShutdownSignal, ThreadPool,
 };
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(all(test, miri))]
 mod miri_smoke {
