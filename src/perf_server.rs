@@ -17,6 +17,7 @@ use crate::response::Response;
 use crate::server::{
     ConnectionPolicy, KEEPALIVE_IDLE_TIMEOUT, MAX_KEEPALIVE_REQUESTS,
     Server, build_response_for_request_with_metrics,
+    negotiate_precompressed_variant, resolves_within,
 };
 
 #[cfg(feature = "high-perf")]
@@ -524,8 +525,11 @@ async fn try_send_static_file_fast_path(
         return Ok(false);
     };
 
-    let (serving_path, encoding) =
-        negotiate_precompressed(&file_path, request);
+    let (serving_path, encoding) = negotiate_precompressed(
+        &file_path,
+        request,
+        server.canonical_document_root(),
+    );
     let metadata =
         std::fs::metadata(&serving_path).map_err(ServerError::from)?;
     let len = metadata.len();
@@ -663,20 +667,8 @@ fn resolve_static_path(
     canonical_root: &Path,
     request_path: &str,
 ) -> Option<PathBuf> {
-    let mut path = root.to_path_buf();
     let rel = request_path.trim_start_matches('/');
-
-    if rel.is_empty() {
-        path.push("index.html");
-    } else {
-        for part in rel.split('/') {
-            if part == ".." {
-                let _ = path.pop();
-            } else {
-                path.push(part);
-            }
-        }
-    }
+    let path = commons::path::safe_join(root, rel).ok()?;
 
     let resolved = std::fs::canonicalize(&path).ok()?;
     if !resolved.starts_with(canonical_root) {
@@ -686,6 +678,9 @@ fn resolve_static_path(
     let meta = std::fs::metadata(&resolved).ok()?;
     if meta.is_dir() {
         let index = resolved.join("index.html");
+        if !resolves_within(canonical_root, &index) {
+            return None;
+        }
         let index_meta = std::fs::metadata(&index).ok()?;
         if index_meta.is_file() {
             return Some(index);
@@ -701,40 +696,13 @@ fn resolve_static_path(
 fn negotiate_precompressed(
     path: &Path,
     request: &Request,
+    canonical_root: &Path,
 ) -> (PathBuf, Option<&'static str>) {
-    let mut serving_path = path.to_path_buf();
-    let mut encoding = None;
-
-    if let Some(accept) = request.header("accept-encoding") {
-        if accept.contains("br") {
-            let candidate =
-                PathBuf::from(format!("{}.br", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                encoding = Some("br");
-                return (serving_path, encoding);
-            }
-        }
-        if accept.contains("zstd") || accept.contains("zst") {
-            let candidate =
-                PathBuf::from(format!("{}.zst", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                encoding = Some("zstd");
-                return (serving_path, encoding);
-            }
-        }
-        if accept.contains("gzip") {
-            let candidate =
-                PathBuf::from(format!("{}.gz", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                encoding = Some("gzip");
-            }
-        }
-    }
-
-    (serving_path, encoding)
+    negotiate_precompressed_variant(
+        path,
+        request.header("accept-encoding"),
+        canonical_root,
+    )
 }
 
 #[cfg(feature = "high-perf")]
@@ -955,6 +923,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let base = dir.path().join("index.html");
         std::fs::write(&base, "x").expect("base");
+        let root =
+            std::fs::canonicalize(dir.path()).expect("canonical");
 
         let headers =
             vec![("accept-encoding".to_string(), "gzip".to_string())];
@@ -966,7 +936,7 @@ mod tests {
         };
         std::fs::write(format!("{}.gz", base.display()), "x")
             .expect("gz");
-        let (p, e) = negotiate_precompressed(&base, &req_gz);
+        let (p, e) = negotiate_precompressed(&base, &req_gz, &root);
         assert!(p.ends_with("index.html.gz"));
         assert_eq!(e, Some("gzip"));
 
@@ -982,7 +952,7 @@ mod tests {
             version: "HTTP/1.1".to_string(),
             headers,
         };
-        let (p, e) = negotiate_precompressed(&base, &req_zst);
+        let (p, e) = negotiate_precompressed(&base, &req_zst, &root);
         assert!(p.ends_with("index.html.zst"));
         assert_eq!(e, Some("zstd"));
 
@@ -998,7 +968,7 @@ mod tests {
             version: "HTTP/1.1".to_string(),
             headers,
         };
-        let (p, e) = negotiate_precompressed(&base, &req_br);
+        let (p, e) = negotiate_precompressed(&base, &req_br, &root);
         assert!(p.ends_with("index.html.br"));
         assert_eq!(e, Some("br"));
 
@@ -1012,7 +982,8 @@ mod tests {
         };
         std::fs::remove_file(format!("{}.gz", base.display()))
             .expect("remove gz");
-        let (p, e) = negotiate_precompressed(&base, &req_gz_missing);
+        let (p, e) =
+            negotiate_precompressed(&base, &req_gz_missing, &root);
         assert!(p.ends_with("index.html"));
         assert_eq!(e, None);
     }
@@ -1888,6 +1859,57 @@ mod tests {
             let _ = outside;
             let _ = canonical_root;
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_static_path_rejects_symlinked_dir_index_escape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(root.join("docs")).expect("mkroot");
+        let secret = dir.path().join("secret.txt");
+        std::fs::write(&secret, "shh").expect("write secret");
+        std::os::unix::fs::symlink(
+            &secret,
+            root.join("docs/index.html"),
+        )
+        .expect("symlink");
+        let canonical_root =
+            std::fs::canonicalize(&root).expect("canonical");
+        assert!(
+            resolve_static_path(&root, &canonical_root, "/docs")
+                .is_none(),
+            "directory index pointing outside root must not resolve",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn negotiate_precompressed_skips_variant_outside_root() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("root");
+        std::fs::create_dir(&root).expect("mkroot");
+        let secret = dir.path().join("secret.gz");
+        std::fs::write(&secret, "shh").expect("write secret");
+        let base = root.join("page.html");
+        std::fs::write(&base, "plain").expect("base");
+        std::os::unix::fs::symlink(&secret, root.join("page.html.gz"))
+            .expect("symlink");
+        let canonical_root =
+            std::fs::canonicalize(&root).expect("canonical");
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/page.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: vec![(
+                "accept-encoding".to_string(),
+                "gzip".to_string(),
+            )],
+        };
+        let (path, encoding) =
+            negotiate_precompressed(&base, &request, &canonical_root);
+        assert_eq!(path, base);
+        assert_eq!(encoding, None);
     }
 
     /// Covers the `Connection: close` early-return after a successful

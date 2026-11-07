@@ -14,8 +14,10 @@
 use crate::error::ServerError;
 use crate::request::Request;
 use crate::response::Response;
+use commons::path::{is_within, safe_join};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -1100,6 +1102,20 @@ impl Server {
         }
     }
 
+    /// The root that request paths must resolve inside: the cached
+    /// canonical root, or `document_root` canonicalised now when the
+    /// cache is empty (a `Server` rebuilt through serde or `Default`).
+    fn containment_root(&self) -> Cow<'_, Path> {
+        if self.canonical_document_root.as_os_str().is_empty() {
+            fs::canonicalize(&self.document_root).map_or(
+                Cow::Borrowed(self.document_root.as_path()),
+                Cow::Owned,
+            )
+        } else {
+            Cow::Borrowed(&self.canonical_document_root)
+        }
+    }
+
     /// Returns the configured maximum file size, in bytes, that the
     /// in-memory file-serve path will buffer. Falls back to
     /// [`DEFAULT_MAX_BUFFERED_BODY_BYTES`] when the builder didn't
@@ -1371,7 +1387,7 @@ pub(crate) fn build_response_for_request(
         "GET" => generate_response_with_cache(
             request,
             &server.document_root,
-            &server.canonical_document_root,
+            &server.containment_root(),
             server.static_cache_ttl_secs,
             server.max_buffered_body_bytes(),
         ),
@@ -1495,108 +1511,106 @@ fn generate_response_with_cache(
     cache_ttl_secs: Option<u64>,
     max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
-    let mut path = PathBuf::from(document_root);
+    // Lexical containment first: refuses absolute paths and any `..`
+    // that would climb above the root. Request paths are not
+    // percent-decoded, so `%2e%2e` is an ordinary name here.
     let request_path = request.path().trim_start_matches('/');
+    let mut path = safe_join(document_root, request_path)
+        .map_err(|_| ServerError::forbidden("Access denied"))?;
 
-    if request_path.is_empty() {
-        // If the request is for the root, append "index.html"
-        path.push("index.html");
-    } else {
-        for component in request_path.split('/') {
-            if component == ".." {
-                let _ = path.pop();
-            } else {
-                path.push(component);
-            }
-        }
+    if !path.exists() {
+        return generate_404_response(document_root);
     }
-
-    let within_root = fs::canonicalize(&path)
-        .map(|candidate| candidate.starts_with(canonical_root))
-        .unwrap_or_else(|_| path.starts_with(document_root));
-    if !within_root {
+    // Then resolve symlinks: a link may point anywhere on disk, so the
+    // target must still lie under the root. Links that stay inside it
+    // are served.
+    if !resolves_within(canonical_root, &path) {
         return Err(ServerError::forbidden("Access denied"));
     }
-
-    if path.is_file() {
-        serve_file_response(
-            request,
-            &path,
-            cache_ttl_secs,
-            max_buffered_body_bytes,
-        )
-    } else if path.is_dir() {
-        // If it's a directory, try to serve index.html from that directory
+    if path.is_dir() {
+        // A directory serves its index.html, which is itself checked:
+        // it may be a symlink even when the directory is not.
         path.push("index.html");
-        if path.is_file() {
-            serve_file_response(
-                request,
-                &path,
-                cache_ttl_secs,
-                max_buffered_body_bytes,
-            )
-        } else {
-            generate_404_response(document_root)
+        if !path.is_file() {
+            return generate_404_response(document_root);
         }
-    } else {
-        generate_404_response(document_root)
+        if !resolves_within(canonical_root, &path) {
+            return Err(ServerError::forbidden("Access denied"));
+        }
+    } else if !path.is_file() {
+        return generate_404_response(document_root);
     }
+    serve_file_response(
+        request,
+        &path,
+        canonical_root,
+        cache_ttl_secs,
+        max_buffered_body_bytes,
+    )
+}
+
+/// Whether the existing `path` resolves, after following symlinks, to a
+/// location under `canonical_root`.
+///
+/// This is [`commons::path::is_within`] with the root canonicalised
+/// once, at server build time, instead of on every request. An empty
+/// root never contains anything.
+pub(crate) fn resolves_within(
+    canonical_root: &Path,
+    path: &Path,
+) -> bool {
+    !canonical_root.as_os_str().is_empty()
+        && fs::canonicalize(path)
+            .is_ok_and(|resolved| resolved.starts_with(canonical_root))
+}
+
+/// Picks a precompressed sibling of `path` (`.br`, then `.zst`, then
+/// `.gz`) that the client accepts, exists, and resolves inside
+/// `canonical_root`. Falls back to `path` with no encoding.
+pub(crate) fn negotiate_precompressed_variant(
+    path: &Path,
+    accept_encoding: Option<&str>,
+    canonical_root: &Path,
+) -> (PathBuf, Option<&'static str>) {
+    const VARIANTS: [(&str, &[&str], &str); 3] = [
+        ("br", &["br"], "br"),
+        ("zst", &["zstd", "zst"], "zstd"),
+        ("gz", &["gzip"], "gzip"),
+    ];
+    let Some(accept) = accept_encoding else {
+        return (path.to_path_buf(), None);
+    };
+    for (extension, tokens, encoding) in VARIANTS {
+        if !tokens.iter().any(|token| accept.contains(token)) {
+            continue;
+        }
+        let candidate =
+            PathBuf::from(format!("{}.{extension}", path.display()));
+        if candidate.is_file()
+            && resolves_within(canonical_root, &candidate)
+        {
+            return (candidate, Some(encoding));
+        }
+    }
+    (path.to_path_buf(), None)
 }
 
 fn serve_file_response(
     request: &Request,
     path: &Path,
+    canonical_root: &Path,
     cache_ttl_secs: Option<u64>,
     max_buffered_body_bytes: u64,
 ) -> Result<Response, ServerError> {
-    let mut serving_path = path.to_path_buf();
-    let mut content_encoding: Option<&'static str> = None;
-    if let Some(encoding) = request.header("accept-encoding") {
-        if encoding.contains("br") {
-            let candidate =
-                PathBuf::from(format!("{}.br", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                content_encoding = Some("br");
-            }
-        }
-        if content_encoding.is_none()
-            && (encoding.contains("zstd") || encoding.contains("zst"))
-        {
-            let candidate =
-                PathBuf::from(format!("{}.zst", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                content_encoding = Some("zstd");
-            }
-        }
-        if content_encoding.is_none() && encoding.contains("gzip") {
-            let candidate =
-                PathBuf::from(format!("{}.gz", path.display()));
-            if candidate.is_file() {
-                serving_path = candidate;
-                content_encoding = Some("gzip");
-            }
-        }
-    }
+    let (serving_path, content_encoding) =
+        negotiate_precompressed_variant(
+            path,
+            request.header("accept-encoding"),
+            canonical_root,
+        );
 
-    // Pre-flight metadata check: refuse to buffer files larger than the
-    // operator's configured cap. This prevents a single client from
-    // driving server RSS to file_size; future streaming work will lift
-    // the cap by writing directly to the wire instead of constructing
-    // a Vec<u8>.
-    let serving_metadata =
-        fs::metadata(&serving_path).map_err(ServerError::from)?;
-    if serving_metadata.len() > max_buffered_body_bytes {
-        return Err(ServerError::Custom(format!(
-            "file exceeds in-memory serve cap ({} > {} bytes); \
-             override via ServerBuilder::max_buffered_body_bytes or \
-             wait for v0.1 streaming",
-            serving_metadata.len(),
-            max_buffered_body_bytes
-        )));
-    }
-    let contents = fs::read(&serving_path)?;
+    let contents =
+        read_buffered_body(&serving_path, max_buffered_body_bytes)?;
     let metadata = fs::metadata(path)?;
     let etag = compute_etag(&metadata);
     if request
@@ -1638,6 +1652,31 @@ fn serve_file_response(
         );
     }
     Ok(response)
+}
+
+/// Reads `path` into memory unless it is larger than
+/// `max_buffered_body_bytes`.
+fn read_buffered_body(
+    path: &Path,
+    max_buffered_body_bytes: u64,
+) -> Result<Vec<u8>, ServerError> {
+    // Pre-flight metadata check: refuse to buffer files larger than the
+    // operator's configured cap. This prevents a single client from
+    // driving server RSS to file_size; future streaming work will lift
+    // the cap by writing directly to the wire instead of constructing
+    // a Vec<u8>.
+    let serving_metadata =
+        fs::metadata(path).map_err(ServerError::from)?;
+    if serving_metadata.len() > max_buffered_body_bytes {
+        return Err(ServerError::Custom(format!(
+            "file exceeds in-memory serve cap ({} > {} bytes); \
+             override via ServerBuilder::max_buffered_body_bytes or \
+             wait for v0.1 streaming",
+            serving_metadata.len(),
+            max_buffered_body_bytes
+        )));
+    }
+    Ok(fs::read(path)?)
 }
 
 fn etag_cache() -> &'static EtagCache {
@@ -1728,7 +1767,10 @@ fn generate_404_response(
     document_root: &Path,
 ) -> Result<Response, ServerError> {
     let not_found_path = document_root.join("404/index.html");
-    let contents = if not_found_path.is_file() {
+    // The custom page is read only when it resolves inside the root.
+    let contents = if not_found_path.is_file()
+        && is_within(document_root, &not_found_path).unwrap_or(false)
+    {
         fs::read(not_found_path)?
     } else {
         b"404 Not Found".to_vec()
@@ -3624,5 +3666,180 @@ mod tests {
             server.canonical_document_root(),
             Path::new("/canonical/elsewhere")
         );
+    }
+
+    /// Builds `<tmp>/root` with `index.html` and `<tmp>/outside/secret.txt`
+    /// so the containment tests can point symlinks across the boundary.
+    #[cfg(unix)]
+    fn root_with_outside_secret() -> (TempDir, PathBuf, PathBuf) {
+        let tmp = TempDir::new().expect("tempdir");
+        let root = tmp.path().join("root");
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&root).expect("mkdir root");
+        fs::create_dir(&outside).expect("mkdir outside");
+        fs::write(root.join("index.html"), b"inside").expect("index");
+        let secret = outside.join("secret.txt");
+        fs::write(&secret, b"outside-secret").expect("secret");
+        (tmp, root, secret)
+    }
+
+    #[cfg(unix)]
+    fn get(path: &str, headers: Vec<(String, String)>) -> Request {
+        Request {
+            method: "GET".to_string(),
+            path: path.to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_file_outside_root_is_forbidden() {
+        let (_tmp, root, secret) = root_with_outside_secret();
+        std::os::unix::fs::symlink(&secret, root.join("link.txt"))
+            .expect("symlink");
+        let result =
+            generate_response(&get("/link.txt", vec![]), &root);
+        assert!(matches!(result, Err(ServerError::Forbidden(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_directory_index_outside_root_is_forbidden() {
+        let (_tmp, root, secret) = root_with_outside_secret();
+        fs::create_dir(root.join("docs")).expect("mkdir docs");
+        std::os::unix::fs::symlink(
+            &secret,
+            root.join("docs/index.html"),
+        )
+        .expect("symlink");
+        let result = generate_response(&get("/docs", vec![]), &root);
+        assert!(matches!(result, Err(ServerError::Forbidden(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_precompressed_variant_outside_root_is_skipped() {
+        let (_tmp, root, secret) = root_with_outside_secret();
+        fs::write(root.join("page.html"), b"plain").expect("page");
+        std::os::unix::fs::symlink(&secret, root.join("page.html.gz"))
+            .expect("symlink");
+        let request = get(
+            "/page.html",
+            vec![("accept-encoding".to_string(), "gzip".to_string())],
+        );
+        let response = generate_response(&request, &root)
+            .expect("plain file served");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body, b"plain");
+        assert!(
+            !response
+                .headers
+                .iter()
+                .any(|(name, _)| name == "Content-Encoding")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_404_page_outside_root_is_not_read() {
+        let (_tmp, root, secret) = root_with_outside_secret();
+        fs::create_dir(root.join("404")).expect("mkdir 404");
+        std::os::unix::fs::symlink(
+            &secret,
+            root.join("404/index.html"),
+        )
+        .expect("symlink");
+        let response = generate_404_response(&root).expect("404");
+        assert_eq!(response.status_code, 404);
+        assert_eq!(response.body, b"404 Not Found");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_escape_is_forbidden_without_cached_canonical_root() {
+        // A `Server` rebuilt through serde has an empty canonical root.
+        let (_tmp, root, secret) = root_with_outside_secret();
+        std::os::unix::fs::symlink(&secret, root.join("link.txt"))
+            .expect("symlink");
+        let server = Server {
+            document_root: root.clone(),
+            canonical_document_root: PathBuf::new(),
+            ..Server::default()
+        };
+        let response = build_response_for_request(
+            &server,
+            &get("/link.txt", vec![]),
+        );
+        assert_eq!(response.status_code, 403);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_that_stay_inside_root_are_served() {
+        let (_tmp, root, _secret) = root_with_outside_secret();
+        fs::create_dir(root.join("real")).expect("mkdir real");
+        fs::write(root.join("real/page.html"), b"real").expect("page");
+        std::os::unix::fs::symlink(
+            root.join("real/page.html"),
+            root.join("alias.html"),
+        )
+        .expect("file symlink");
+        std::os::unix::fs::symlink(root.join("real"), root.join("dir"))
+            .expect("dir symlink");
+        for path in ["/alias.html", "/dir/page.html"] {
+            let response = generate_response(&get(path, vec![]), &root)
+                .expect("inside symlink served");
+            assert_eq!(response.status_code, 200, "{path}");
+            assert_eq!(response.body, b"real", "{path}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn percent_encoded_dot_segments_do_not_escape() {
+        // Request paths are not percent-decoded, so `%2e%2e` is a
+        // literal name, never a parent directory.
+        let (_tmp, root, _secret) = root_with_outside_secret();
+        for path in [
+            "/%2e%2e/outside/secret.txt",
+            "/%2E%2E/outside/secret.txt",
+            "/..%2foutside/secret.txt",
+        ] {
+            let response = generate_response(&get(path, vec![]), &root)
+                .expect("literal name resolves to a 404");
+            assert_eq!(response.status_code, 404, "{path}");
+        }
+    }
+
+    #[test]
+    fn parent_segments_above_root_are_forbidden() {
+        let root = setup_test_directory();
+        for path in
+            ["/..", "/../index.html", "/subdir/../../index.html"]
+        {
+            let request = Request {
+                method: "GET".to_string(),
+                path: path.to_string(),
+                version: "HTTP/1.1".to_string(),
+                headers: Vec::new(),
+            };
+            let result = generate_response(&request, root.path());
+            assert!(
+                matches!(result, Err(ServerError::Forbidden(_))),
+                "{path}"
+            );
+        }
+        // `..` that stays inside the root still resolves.
+        let request = Request {
+            method: "GET".to_string(),
+            path: "/subdir/../index.html".to_string(),
+            version: "HTTP/1.1".to_string(),
+            headers: Vec::new(),
+        };
+        let response = generate_response(&request, root.path())
+            .expect("inside path served");
+        assert_eq!(response.status_code, 200);
     }
 }

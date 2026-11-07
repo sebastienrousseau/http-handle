@@ -4,6 +4,7 @@
 //! Batch processing utilities for concurrent file reads.
 
 use crate::error::ServerError;
+use commons::path::{is_within, safe_join};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -55,6 +56,11 @@ pub struct BatchResult {
 
 /// Concurrently reads multiple files under a shared root.
 ///
+/// Each `relative_path` must stay under `document_root`: an absolute
+/// path, a `..` that climbs above the root, or a symlink whose target
+/// lies outside it yields [`ServerError::Forbidden`] for that entry.
+/// Symlinks that resolve inside the root are followed.
+///
 /// # Examples
 ///
 /// ```rust,no_run
@@ -92,9 +98,8 @@ pub fn process_batch(
             let out = Arc::clone(&shared);
             let _ = scope.spawn(move || {
                 for req in chunk {
-                    let full_path = root.join(&req.relative_path);
                     let result =
-                        fs::read(&full_path).map_err(ServerError::from);
+                        read_contained(&root, &req.relative_path);
                     let entry = BatchResult {
                         relative_path: req.relative_path.clone(),
                         body: result,
@@ -113,6 +118,21 @@ pub fn process_batch(
     let mut out = std::mem::take(&mut *guard);
     out.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     out
+}
+
+/// Reads `relative` under `root`, refusing paths that leave it.
+fn read_contained(
+    root: &Path,
+    relative: &Path,
+) -> Result<Vec<u8>, ServerError> {
+    let denied = || ServerError::forbidden("Access denied");
+    let full_path = safe_join(root, relative).map_err(|_| denied())?;
+    // Check before reading; a missing file surfaces as its I/O error.
+    if is_within(root, &full_path)? {
+        fs::read(&full_path).map_err(ServerError::from)
+    } else {
+        Err(denied())
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +178,68 @@ mod tests {
         let results = process_batch(tmp.path(), &requests, 1);
         assert_eq!(results.len(), 1);
         assert!(matches!(results[0].body, Err(ServerError::Io(_))));
+    }
+
+    #[test]
+    fn batch_refuses_paths_that_leave_the_root() {
+        let tmp = TempDir::new().expect("tmp");
+        let root = tmp.path().join("root");
+        fs::create_dir(&root).expect("mkdir root");
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, b"secret").expect("write secret");
+
+        let requests = vec![
+            BatchRequest {
+                relative_path: secret.clone(),
+            },
+            BatchRequest {
+                relative_path: PathBuf::from("../secret.txt"),
+            },
+        ];
+        let results = process_batch(&root, &requests, 1);
+        assert_eq!(results.len(), 2);
+        for result in &results {
+            assert!(
+                matches!(result.body, Err(ServerError::Forbidden(_))),
+                "{:?}",
+                result.relative_path
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn batch_refuses_symlinks_that_leave_the_root() {
+        let tmp = TempDir::new().expect("tmp");
+        let root = tmp.path().join("root");
+        fs::create_dir(&root).expect("mkdir root");
+        let secret = tmp.path().join("secret.txt");
+        fs::write(&secret, b"secret").expect("write secret");
+        std::os::unix::fs::symlink(&secret, root.join("link.txt"))
+            .expect("symlink");
+        fs::write(root.join("inside.txt"), b"inside").expect("inside");
+        std::os::unix::fs::symlink(
+            root.join("inside.txt"),
+            root.join("alias.txt"),
+        )
+        .expect("inside symlink");
+
+        let requests = vec![
+            BatchRequest {
+                relative_path: PathBuf::from("alias.txt"),
+            },
+            BatchRequest {
+                relative_path: PathBuf::from("link.txt"),
+            },
+        ];
+        let results = process_batch(&root, &requests, 1);
+        assert_eq!(
+            results[0].body.as_deref().ok(),
+            Some(&b"inside"[..])
+        );
+        assert!(matches!(
+            results[1].body,
+            Err(ServerError::Forbidden(_))
+        ));
     }
 }
