@@ -225,3 +225,69 @@ fn metrics_endpoint_reports_abuse_reasons() {
         );
     }
 }
+
+#[test]
+fn policy_survives_server_serde_round_trip() {
+    let policy = AbusePolicy {
+        burst: Some(limit(5)),
+        trusted: vec!["fd00::/8".into()],
+        ..AbusePolicy::default()
+    };
+    let (_dir, server) = server(policy.clone());
+    assert_eq!(server.abuse_policy(), Some(&policy));
+    let json = serde_json::to_string(&server).expect("serialize");
+    let back: Server =
+        serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(back.abuse_policy(), Some(&policy));
+    assert_eq!(back.policies_for_test(), server.policies_for_test());
+}
+
+#[test]
+fn ipv6_trust_does_not_cover_ipv4_clients() {
+    let policy = AbusePolicy {
+        global: Some(limit(1)),
+        trusted: vec!["fd00::/8".into()],
+        ..AbusePolicy::default()
+    };
+    let (_dir, server) = server(policy);
+    assert_eq!(status(&server, "/x.txt", CLIENT), 200);
+    assert_eq!(status(&server, "/x.txt", CLIENT), 503);
+    assert_eq!(status(&server, "/x.txt", "fd00::1"), 200);
+    assert_eq!(status(&server, "/x.txt", "fe80::1"), 503);
+}
+
+#[test]
+fn window_resets_after_it_expires() {
+    let policy = AbusePolicy {
+        burst: Some(Limit {
+            max_requests: 1,
+            window_ms: 50,
+        }),
+        ..AbusePolicy::default()
+    };
+    let (_dir, server) = server(policy);
+    assert_eq!(status(&server, "/x.txt", CLIENT), 200);
+    assert_eq!(status(&server, "/x.txt", CLIENT), 429);
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    assert_eq!(status(&server, "/x.txt", CLIENT), 200);
+}
+
+#[test]
+fn counter_table_is_pruned_when_large() {
+    let policy = AbusePolicy {
+        burst: Some(limit(1)),
+        ..AbusePolicy::default()
+    };
+    let (_dir, server) = server(policy);
+    let guard =
+        server.policies_for_test().abuse.as_ref().expect("guard");
+    // A flood of distinct live clients must not grow the table past
+    // its cap; limits keep working after the reset.
+    for n in 0..70_000_u32 {
+        let client =
+            IpAddr::from(std::net::Ipv4Addr::from(0x0A00_0000 + n));
+        assert!(guard.check(client, None).is_none());
+        assert!(guard.tracked() <= 65_536);
+    }
+    assert!(guard.check(ip("10.1.17.111"), None).is_some());
+}

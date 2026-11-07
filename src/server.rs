@@ -1198,6 +1198,11 @@ impl Server {
         self.policies.abuse.as_ref().map(AbuseGuard::policy)
     }
 
+    #[cfg(test)]
+    pub(crate) fn policies_for_test(&self) -> &RequestPolicies {
+        &self.policies
+    }
+
     /// Whether any request policy is configured. Fast paths that skip
     /// [`build_response_for_request`] must not run when this is true.
     #[cfg(feature = "high-perf")]

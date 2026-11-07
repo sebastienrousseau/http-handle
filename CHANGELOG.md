@@ -63,7 +63,9 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
   `abuse::stats()` and `/metrics` (`http_handle_abuse_total`). The
   HTTP/1, HTTP/2 and `high-perf` frontends all pass the client
   address, so the policy applies to each; the existing per-minute
-  rate limit is unchanged.
+  rate limit is unchanged. The counter table is capped: past 65,536
+  live windows it drops expired ones, and resets (with a `warn` line)
+  if a flood of distinct clients keeps it full.
 - New optional dependency `flate2` (feature `compression`), the
   pure-Rust backend, for on-the-fly gzip.
 

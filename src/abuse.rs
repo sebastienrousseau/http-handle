@@ -288,7 +288,7 @@ impl AbuseGuard {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        prune(&mut windows, now);
+        prune(&mut windows, now, self.longest_window());
         let checks = self.checks(client, route);
         checks.into_iter().flatten().find_map(
             |(reason, scope, key, limit)| {
@@ -306,6 +306,26 @@ impl AbuseGuard {
                 })
             },
         )
+    }
+
+    /// The longest configured window.
+    fn longest_window(&self) -> Duration {
+        let policy = &self.policy;
+        let longest = policy
+            .burst
+            .iter()
+            .chain(policy.global.iter())
+            .chain(policy.route_quotas.iter().map(|q| &q.limit))
+            .map(|l| l.window_ms)
+            .max()
+            .unwrap_or(0);
+        Duration::from_millis(longest)
+    }
+
+    /// Number of live counter windows.
+    #[cfg(test)]
+    pub(crate) fn tracked(&self) -> usize {
+        self.windows.lock().map_or(0, |w| w.len())
     }
 
     /// The limits that apply to `client` on `route`, in check order,
@@ -362,12 +382,22 @@ fn hit(
     None
 }
 
-/// Drops windows older than a minute once the table is large.
-fn prune(windows: &mut Windows, now: Instant) {
-    if windows.len() >= MAX_TRACKED {
-        windows.retain(|_, (start, _)| {
-            now.duration_since(*start) < Duration::from_secs(60)
-        });
+/// Bounds the table once it reaches [`MAX_TRACKED`]: drops windows
+/// older than `longest`, and if every window is still live (a flood
+/// of distinct clients) starts again from an empty table, so memory
+/// and per-request work stay bounded.
+fn prune(windows: &mut Windows, now: Instant, longest: Duration) {
+    if windows.len() < MAX_TRACKED {
+        return;
+    }
+    windows
+        .retain(|_, (start, _)| now.duration_since(*start) < longest);
+    if windows.len() >= MAX_TRACKED / 2 {
+        log::warn!(
+            "abuse counters reset: {} live windows exceed the cap",
+            windows.len()
+        );
+        windows.clear();
     }
 }
 
