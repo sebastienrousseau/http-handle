@@ -6,10 +6,36 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
-### Removed
+## [0.0.11] - 2026-11-07
 
-- The `euxis-commons` dependency. No code in the crate used it; it only
-  added a crate to every build and to the supply-chain surface.
+### Security
+
+- Static-file serving now checks every file it reads against the
+  document root after resolving symlinks. Before, only the requested
+  path was checked, so a directory's `index.html`, a precompressed
+  `.br`/`.zst`/`.gz` sibling, or the custom `404/index.html` that was a
+  symlink to a file outside the root was served. Escaping index files
+  now return 403, escaping precompressed variants are skipped in favour
+  of the plain file, and an escaping 404 page falls back to the built-in
+  one. The `high-perf` fast path applies the same checks.
+- A `Server` rebuilt through serde or `Default` has no cached canonical
+  root; the containment check treated that empty root as containing
+  every path. The root is now canonicalised on demand in that case.
+- `batch::process_batch` refuses absolute paths, `..` above the root,
+  and symlinks that leave the root, returning `ServerError::Forbidden`
+  for that entry. It previously joined and read any path it was given.
+- Symlinks whose target stays inside the root are still served.
+
+### Changed
+
+- Request paths are joined to the root with `euxis-commons` 0.0.9's
+  `path::safe_join`, replacing the hand-written `..` handling. A `..`
+  that climbs above the root is refused even if a later component
+  returns to it. Request paths are still not percent-decoded, so
+  `%2e%2e` is an ordinary file name.
+- `euxis-commons` moves from 0.0.6 (features `error` and `time`, which
+  no code used) to 0.0.9 with only the `path` feature, which the
+  containment checks above use. It has no transitive dependencies.
 
 ## [0.0.10] - 2026-11-01
 

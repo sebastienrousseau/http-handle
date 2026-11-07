@@ -92,8 +92,10 @@ absolute throughput; the relative ordering between modes still holds.
 ### Q. Does `http-handle` enforce any security policies by default?
 
 The synchronous server applies a small built-in set: directory
-traversal rejection (paths containing `..` or escaping the canonical
-document root), `Content-Type` sniffing-friendly headers when the file
+traversal rejection (a `..` that climbs above the document root, or
+any file, directory index, precompressed variant or custom 404 page
+whose symlink-resolved location is outside it; symlinks that stay
+inside the root are served), `Content-Type` sniffing-friendly headers when the file
 extension is recognised, and a 64 MiB cap on buffered response bodies
 (closes the OOM vector where a 1 GB file would drive RSS to N ×
 file_size on N concurrent requests).
