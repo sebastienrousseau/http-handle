@@ -230,3 +230,31 @@ fn routes_cannot_escape_their_root() {
         fixture(|api, _| vec![Route::new("api", "/api", api.path())]);
     assert_eq!(body(&f.server, "GET", "/api/../page.txt", &[]).0, 403);
 }
+
+#[test]
+fn bare_prefix_and_ipv6_host_resolve() {
+    let f = fixture(|api, _| {
+        vec![Route::new("api", "/api", api.path()).host("[::1]")]
+    });
+    let names: Vec<&str> = f
+        .server
+        .router()
+        .expect("router")
+        .routes()
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    assert_eq!(names, ["api"]);
+    let host = [("Host", "[::1]:8080")];
+    // `/api` itself maps to the route root, which has no index: 404 from that root.
+    let route = f
+        .server
+        .router()
+        .and_then(|r| r.select(&request("GET", "/api", &host)));
+    assert_eq!(route.map(|r| r.name.as_str()), Some("api"));
+    assert_eq!(body(&f.server, "GET", "/api", &host).0, 404);
+    assert_eq!(
+        body(&f.server, "GET", "/api/page.txt", &[("Host", "[::2]")]).0,
+        404
+    );
+}

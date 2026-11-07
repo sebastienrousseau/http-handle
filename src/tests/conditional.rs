@@ -159,3 +159,29 @@ fn not_modified_keeps_cache_headers_and_applies_to_head() {
         Some("public, max-age=60")
     );
 }
+
+#[test]
+fn malformed_dates_are_ignored() {
+    for bad in [
+        "Thu 29 Feb 2024 12:34:56 GMT",
+        "Thu, 29 Feb 2024 12:34 GMT",
+        "Thu, 29 Feb 2024 12:34:56:00 GMT",
+    ] {
+        assert_eq!(parse_http_date(bad), None, "{bad}");
+    }
+}
+
+#[test]
+fn not_modified_for_precompressed_file_varies_by_encoding() {
+    let dir = site(&[("app.js", "plain"), ("app.js.br", "br")]);
+    let server = Server::builder()
+        .address("127.0.0.1:0")
+        .document_root(path_str(dir.path()))
+        .build()
+        .expect("server");
+    let headers = [("Accept-Encoding", "br"), ("If-None-Match", "*")];
+    let response =
+        respond(&server, &request("GET", "/app.js", &headers));
+    assert_eq!(response.status_code, 304);
+    assert_eq!(header(&response, "vary"), Some("Accept-Encoding"));
+}

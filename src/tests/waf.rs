@@ -172,3 +172,20 @@ fn metrics_endpoint_reports_waf_actions() {
         body.contains("http_handle_waf_total{action=\"reported\"}")
     );
 }
+
+#[test]
+fn method_rules_match_the_method() {
+    let waf = WafPolicy::new(
+        WafMode::ReportOnly,
+        vec![WafRule::new("no-trace", WafTarget::Method, "^TRACE$")],
+    )
+    .expect("valid");
+    assert_eq!(waf.mode(), WafMode::ReportOnly);
+    let event =
+        waf.inspect(&request("TRACE", "/", &[])).expect("match");
+    assert_eq!(
+        (event.target.as_str(), event.action),
+        ("method", WafAction::Reported)
+    );
+    assert_eq!(waf.inspect(&request("GET", "/", &[])), None);
+}
