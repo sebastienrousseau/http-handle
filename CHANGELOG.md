@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+### Dependencies
+
+- `log` 0.4.34 -> 0.4.35, `notify` 8.2.1 -> 8.2.2, `arc-swap` 1.9.3 ->
+  1.9.5 and `toml` 1.1.8 -> 1.2.0 in the minor-and-patch group
+  (Dependabot #133).
+- The shared `sebastienrousseau/pipelines` reusable workflows move to
+  `3f9978a` in the GitHub Actions group (Dependabot #132).
+
 ## [0.0.12] - 2026-11-07
 
 ### Added
