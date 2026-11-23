@@ -11,6 +11,9 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - `log` 0.4.34 -> 0.4.35, `notify` 8.2.1 -> 8.2.2, `arc-swap` 1.9.3 ->
   1.9.5 and `toml` 1.1.8 -> 1.2.0 in the minor-and-patch group
   (Dependabot #133).
+- `ctrlc` 3.5.2 -> 3.5.3, `regex` 1.13.1 -> 1.13.2, `bytes` 1.12.1 ->
+  1.12.2 and `toml` 1.2.0 -> 1.2.1 in the minor-and-patch group
+  (Dependabot #135).
 - The shared `sebastienrousseau/pipelines` reusable workflows move to
   `3f9978a` in the GitHub Actions group (Dependabot #132).
 
